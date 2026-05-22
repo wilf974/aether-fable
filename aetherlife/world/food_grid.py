@@ -61,6 +61,14 @@ class FoodGrid:
         return len(Action)
 
     @property
+    def n_states(self) -> int:
+        """Dimension de l'observation, alias `cfg.obs_dim`.
+
+        Exposé sous ce nom pour compat MW_IA `DQNAgent` (qui s'attend à `env.n_states`).
+        """
+        return self.cfg.obs_dim
+
+    @property
     def pos(self) -> tuple[int, int]:
         return self._pos
 

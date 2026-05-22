@@ -18,6 +18,8 @@ logs/
 runs/
 experiments/*/runs/
 benchmarks/results/*.parquet
+ruvector.db
+*.db
 
 # IDE
 .vscode/

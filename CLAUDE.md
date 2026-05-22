@@ -50,7 +50,8 @@ V1 Solo Forager complet :
 - Shell Claude Code : Git Bash (Bash tool), PowerShell via `powershell.exe -NonInteractive -Command`
 - Python : 3.13.12 (`py -3.13` ou venv local `.venv/`)
 - Dépendances V1 : `numpy>=1.26`, `gymnasium>=0.29`, `pytest`, `hypothesis`
-- Réutilisation : projet voisin `../MW_IA/` (RL infra V2-W livrée, integration V1.5+)
+- Dépendances V1.5 : `torch==2.11.0+cu128` (via `--index-url https://download.pytorch.org/whl/cu128`), `mw_ia` editable (`pip install -e ../MW_IA`), `pygame-ce`
+- Réutilisation : projet voisin `../MW_IA/` (RL infra V2-W intégrée directement)
 
 ### Activer le venv
 
@@ -64,13 +65,26 @@ source .venv/Scripts/activate
 ```bash
 source .venv/Scripts/activate && pytest -q
 ```
-Attendu : **72 passed**.
+Attendu : **90 passed** (72 V1 + 18 V1.5).
 
-### Smoke baseline
+### Smoke baseline V1
 ```bash
 python scripts/run_baseline.py --episodes 100
 ```
 Attendu : GreedyAgent 100 % survival, RandomAgent ~87 %.
+
+### Smoke DQN V1.5
+```bash
+python scripts/train_dqn.py --episodes 300 --device cuda
+```
+Attendu : ~50 s sur RTX 3060, best assessment ~20 % (perfectionable — cf. pièges V1.5).
+Le checkpoint best est sauvé dans `checkpoints/dqn_best.pt`.
+
+### GUI live
+```bash
+python scripts/launch_gui.py                                # Greedy + Random
+python scripts/launch_gui.py --dqn-checkpoint checkpoints/dqn_best.pt   # + DQN
+```
 
 ### Vérifier les invariants
 ```bash
@@ -104,7 +118,7 @@ Pour la validation property-based formelle (Aether v1.4), passer chaque fichier 
 
 Voir `docs/superpowers/specs/2026-05-23-aetherlife-v1-solo-forager-design.md` pour la roadmap V0 → V8 complète.
 
-**Prochaine étape par défaut** : V1.5 = intégrer MW_IA DQN (et idéalement V2-V best-checkpoint préalable dans MW_IA) pour comparer un agent appris vs Greedy.
+**Prochaine étape par défaut** : V2 = multi-agent independent (IDQN, tragedy of the commons). Voir spec design dans `docs/superpowers/specs/`. Avant V2, valider que la recette DQN du piège #6 atteint au moins ~70 % d'assessment (vraie comparaison RL vs Greedy).
 
 ## Mémoires persistantes liées
 

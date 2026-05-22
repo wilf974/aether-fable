@@ -1,0 +1,163 @@
+"""DQNRunner — boucle d'entraînement DQN sur FoodGrid avec assessment périodique."""
+from __future__ import annotations
+
+import statistics
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Callable
+
+from aetherlife.agents.dqn_agent import DQNAgent
+from aetherlife.training.best_checkpoint import BestCheckpointTracker
+from aetherlife.world.food_grid import FoodGrid
+
+
+@dataclass
+class EpisodeMetric:
+    episode: int
+    total_reward: float
+    lifespan: int
+    food_eaten: int
+    survived: bool
+    epsilon: float
+    last_loss: float | None
+
+
+@dataclass
+class AssessmentMetric:
+    train_episode: int
+    survival_rate: float
+    mean_lifespan: float
+    mean_reward: float
+    mean_food: float
+
+
+@dataclass
+class DQNRunnerResult:
+    train_metrics: list[EpisodeMetric] = field(default_factory=list)
+    assessment_metrics: list[AssessmentMetric] = field(default_factory=list)
+    best_assessment_score: float = float("-inf")
+    best_assessment_episode: int = 0
+    stopped_early: bool = False
+    final_episode: int = 0
+
+
+def _run_assessment_episode(env: FoodGrid, agent: DQNAgent, seed: int) -> tuple[bool, int, float, int]:
+    """Une éval greedy : retourne (survived, lifespan, total_reward, food_eaten)."""
+    obs, _ = env.reset(seed=seed)
+    total_reward = 0.0
+    food_eaten = 0
+    terminated = False
+    truncated = False
+    while not (terminated or truncated):
+        action = agent.act(obs, greedy=True)
+        obs, reward, terminated, truncated, info = env.step(action)
+        total_reward += reward
+        if info.get("ate"):
+            food_eaten += 1
+    return (truncated, env.step_count, total_reward, food_eaten)
+
+
+def assess(
+    env: FoodGrid,
+    agent: DQNAgent,
+    n_episodes: int = 10,
+    *,
+    base_seed: int = 100_000,
+) -> AssessmentMetric:
+    """Eval greedy sur `n_episodes` épisodes avec seeds eval-only (séparées du training)."""
+    results = [_run_assessment_episode(env, agent, seed=base_seed + i) for i in range(n_episodes)]
+    survivals = [r[0] for r in results]
+    lifespans = [r[1] for r in results]
+    rewards = [r[2] for r in results]
+    foods = [r[3] for r in results]
+    return AssessmentMetric(
+        train_episode=agent.global_step,
+        survival_rate=sum(survivals) / n_episodes,
+        mean_lifespan=statistics.mean(lifespans),
+        mean_reward=statistics.mean(rewards),
+        mean_food=statistics.mean(foods),
+    )
+
+
+def run_dqn_training(
+    env: FoodGrid,
+    agent: DQNAgent,
+    *,
+    n_episodes: int,
+    assess_every: int = 25,
+    assess_episodes: int = 10,
+    checkpoint_path: str | Path = "checkpoints/best.pt",
+    patience: int = 10,
+    min_delta: float = 0.001,
+    base_seed: int = 0,
+    on_episode_end: Callable[[EpisodeMetric], None] | None = None,
+    on_assess: Callable[[AssessmentMetric, bool], None] | None = None,
+) -> DQNRunnerResult:
+    """Boucle d'entraînement DQN avec assessment périodique et best-checkpoint.
+
+    Args:
+        env: environnement FoodGrid.
+        agent: DQN à entraîner.
+        n_episodes: nombre d'épisodes de training.
+        assess_every: assessment greedy toutes les N épisodes.
+        assess_episodes: nombre d'épisodes par assessment.
+        checkpoint_path: chemin du best checkpoint.
+        patience: stoppage anticipé si patience assessments sans amélioration.
+        min_delta: amélioration minimale pour nouveau best.
+        base_seed: seeds training = base_seed + episode_idx ; assessment seeds très distincts.
+        on_episode_end / on_assess: callbacks optionnels.
+
+    Returns:
+        DQNRunnerResult avec historiques training + assessment + best score.
+    """
+    tracker = BestCheckpointTracker(
+        save_path=Path(checkpoint_path), patience=patience, min_delta=min_delta
+    )
+    result = DQNRunnerResult()
+
+    for episode_idx in range(n_episodes):
+        obs, _ = env.reset(seed=base_seed + episode_idx)
+        total_reward = 0.0
+        food_eaten = 0
+        terminated = False
+        truncated = False
+
+        while not (terminated or truncated):
+            action = agent.act(obs)
+            next_obs, reward, terminated, truncated, info = env.step(action)
+            done = terminated or truncated
+            agent.observe(obs, action, reward, next_obs, done)
+            obs = next_obs
+            total_reward += reward
+            if info.get("ate"):
+                food_eaten += 1
+
+        metric = EpisodeMetric(
+            episode=episode_idx,
+            total_reward=total_reward,
+            lifespan=env.step_count,
+            food_eaten=food_eaten,
+            survived=truncated,
+            epsilon=agent.epsilon,
+            last_loss=agent.last_loss,
+        )
+        result.train_metrics.append(metric)
+        if on_episode_end is not None:
+            on_episode_end(metric)
+
+        if (episode_idx + 1) % assess_every == 0:
+            a_m = assess(env, agent, n_episodes=assess_episodes)
+            improved = tracker.report(episode_idx, a_m.survival_rate, agent)
+            result.assessment_metrics.append(a_m)
+            if on_assess is not None:
+                on_assess(a_m, improved)
+            if tracker.should_stop:
+                result.stopped_early = True
+                result.final_episode = episode_idx
+                break
+
+    result.best_assessment_score = tracker.best_score
+    result.best_assessment_episode = tracker.best_step
+    if not result.stopped_early:
+        result.final_episode = n_episodes - 1
+    return result

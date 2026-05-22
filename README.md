@@ -2,7 +2,7 @@
 
 Plateforme RL pour l'étude expérimentale des comportements émergents dans des écosystèmes artificiels procéduraux.
 
-**Statut** : V1 (`v0.1.0-alpha`) — single-agent forager livré.
+**Statut** : V1.5 (`v0.1.5-alpha`) — DQN MW_IA intégré + best-checkpoint + GUI étendue.
 
 ## Vision
 
@@ -29,6 +29,10 @@ Un agent unique sur grille 16×16 statique, gère son énergie via food respawni
 | Invariants Python mirror | [`aetherlife/guardrails/invariants.py`](aetherlife/guardrails/invariants.py) |
 | Agent random | [`aetherlife/agents/random_agent.py`](aetherlife/agents/random_agent.py) |
 | Agent greedy oracle | [`aetherlife/agents/greedy_agent.py`](aetherlife/agents/greedy_agent.py) |
+| Agent DQN (wrap MW_IA) | [`aetherlife/agents/dqn_agent.py`](aetherlife/agents/dqn_agent.py) |
+| Best-checkpoint tracker | [`aetherlife/training/best_checkpoint.py`](aetherlife/training/best_checkpoint.py) |
+| DQN runner + assessment | [`aetherlife/training/dqn_runner.py`](aetherlife/training/dqn_runner.py) |
+| GUI live pygame | [`aetherlife/viz/pygame_viewer.py`](aetherlife/viz/pygame_viewer.py) |
 | Invariants Aether (I1-I5) | [`aether/invariants/`](aether/invariants/) |
 
 ## Installation
@@ -37,6 +41,11 @@ Un agent unique sur grille 16×16 statique, gère son énergie via food respawni
 python -m venv .venv
 source .venv/Scripts/activate   # Windows : Git Bash
 pip install -e ".[dev]"
+
+# V1.5+ : DQN MW_IA + PyTorch CUDA
+pip install -e "../MW_IA"
+pip install torch --index-url https://download.pytorch.org/whl/cu128
+pip install pygame-ce
 ```
 
 ## Smoke baseline
@@ -52,6 +61,32 @@ AetherLife V1 baseline — episodes=100  grid=16x16  max_steps=1000
   RandomAgent   : survival= 87.0%  lifespan=  879.3  reward= +3983.6  food=243.5
   GreedyAgent   : survival=100.0%  lifespan= 1000.0  reward= +8509.6  food=475.5
 ```
+
+## V1.5 — Entraîner un DQN
+
+```bash
+python scripts/train_dqn.py --episodes 300 --device cuda
+```
+
+L'entraînement utilise `mw_ia.agents.dqn.DQNAgent` (réutilise QNetwork + ReplayBuffer +
+DQNTrainer), avec **assessment greedy périodique** (toutes les 25 ép), **best-checkpoint
+tracking** et **early stopping** (patience 10 évaluations sans amélioration).
+
+Le checkpoint best est sauvé dans `checkpoints/dqn_best.pt`.
+
+## GUI live
+
+```bash
+python scripts/launch_gui.py
+python scripts/launch_gui.py --dqn-checkpoint checkpoints/dqn_best.pt   # avec DQN
+```
+
+**Contrôles** :
+- `SPACE` pause / reprise
+- `R` reset épisode
+- `A` switch agent (Greedy ↔ Random ↔ DQN si checkpoint fourni)
+- `↑` / `↓` accélérer / ralentir
+- `Q` ou `ESC` quitter
 
 ## Vérifier les invariants
 
@@ -77,7 +112,7 @@ pytest tests/guardrails/ -v
 pytest -q
 ```
 
-Attendu V1 : **72 tests verts** (17 config + 27 guardrails + 14 food_grid + 7 env + 7 agents).
+Attendu V1.5 : **90 tests verts** (V1 : 17 config + 27 guardrails + 14 food_grid + 7 env + 7 agents = 72 ; V1.5 : 5 dqn_agent + 8 best_checkpoint + 5 dqn_runner = 18).
 
 ## Catalogue d'invariants V1
 
@@ -94,7 +129,7 @@ Attendu V1 : **72 tests verts** (17 config + 27 guardrails + 14 food_grid + 7 en
 | V | Périmètre | Statut |
 |---|---|---|
 | **V1** | Solo Forager + baselines + invariants I1-I5 | ✅ livré (`v0.1.0-alpha`) |
-| V1.5 | Wrap DQN MW_IA + GUI live + best-checkpoint | À venir |
+| **V1.5** | Wrap DQN MW_IA + GUI live pygame + best-checkpoint + assessment | ✅ livré (`v0.1.5-alpha`) |
 | V2 | Multi-agent independent (IDQN), tragedy of the commons | À venir |
 | V3 | Saisons + météo + food regen dynamique (LSTM vs MLP) | À venir |
 | V4 | Reproduction + lineage + PBT | À venir |
