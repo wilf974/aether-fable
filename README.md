@@ -64,13 +64,25 @@ AetherLife V1 baseline — episodes=100  grid=16x16  max_steps=1000
 
 ## V1.5 — Entraîner un DQN
 
+Defaults rapides (smoke ~50 s GPU, best ~20 %) :
+
 ```bash
 python scripts/train_dqn.py --episodes 300 --device cuda
 ```
 
+**Recette gagnante** (best assessment 90 %, ~8 min RTX 3060) :
+
+```bash
+python scripts/train_dqn.py \
+    --episodes 1500 --device cuda \
+    --hidden 256 256 --epsilon-decay-steps 40000 --target-sync-steps 300 \
+    --lr 5e-4 --batch-size 256 \
+    --assess-every 25 --assess-episodes 10 --patience 25
+```
+
 L'entraînement utilise `mw_ia.agents.dqn.DQNAgent` (réutilise QNetwork + ReplayBuffer +
 DQNTrainer), avec **assessment greedy périodique** (toutes les 25 ép), **best-checkpoint
-tracking** et **early stopping** (patience 10 évaluations sans amélioration).
+tracking** et **early stopping** (patience N évaluations sans amélioration).
 
 Le checkpoint best est sauvé dans `checkpoints/dqn_best.pt`.
 
