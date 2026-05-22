@@ -1,0 +1,28 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+.venv/
+.pytest_cache/
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Run artifacts
+checkpoints/
+logs/
+runs/
+experiments/*/runs/
+benchmarks/results/*.parquet
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Claude
+.claude/

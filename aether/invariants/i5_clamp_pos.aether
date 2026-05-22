@@ -1,0 +1,10 @@
+(@intent "AetherLife I5 — position clampée dans [0, dim-1] après step (1D)")
+(@example 5 1 10 6)
+(@example 9 1 10 9)
+(@example 0 -1 10 0)
+(@example 3 0 10 3)
+(@example 9 5 10 9)
+(@invariant (>= result 0))
+(@invariant (< result dim))
+(fn clamp_pos ((pos num) (delta num) (dim num)) num
+  (max 0 (min (- dim 1) (+ pos delta))))

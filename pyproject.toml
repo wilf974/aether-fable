@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aetherlife"
+version = "0.1.0-alpha"
+description = "AetherLife — plateforme RL pour l'étude expérimentale des comportements émergents dans des écosystèmes artificiels procéduraux."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "gymnasium>=0.29",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "hypothesis>=6.100",
+]
+
+[tool.setuptools.packages.find]
+include = ["aetherlife*"]
+exclude = ["tests*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"

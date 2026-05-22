@@ -1,0 +1,8 @@
+(@intent "AetherLife I3 — terminated ssi energy <= 0")
+(@example 0 true)
+(@example -1 true)
+(@example 1 false)
+(@example 100 false)
+(@invariant (= result (<= energy 0)))
+(fn is_terminated ((energy num)) bool
+  (<= energy 0))

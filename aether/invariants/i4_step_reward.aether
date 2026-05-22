@@ -1,0 +1,8 @@
+(@intent "AetherLife I4 — reward d'un step : -metabolism + (food_value si ate)")
+(@example 1 5 true 4)
+(@example 1 5 false -1)
+(@example 2 10 true 8)
+(@example 2 10 false -2)
+(@invariant (= result (if ate (- food_value metabolism) (- 0 metabolism))))
+(fn step_reward ((metabolism num) (food_value num) (ate bool)) num
+  (if ate (- food_value metabolism) (- 0 metabolism)))

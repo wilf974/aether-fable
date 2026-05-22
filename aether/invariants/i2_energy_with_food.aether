@@ -1,0 +1,10 @@
+(@intent "AetherLife I2 — énergie après step avec eat : clamp(energy - metabolism + food_value, 0, max_energy)")
+(@example 10 1 5 20 14)
+(@example 18 1 5 20 20)
+(@example 19 1 5 20 20)
+(@example 0 1 5 20 4)
+(@example 1 5 5 20 1)
+(@invariant (>= result 0))
+(@invariant (<= result max_energy))
+(fn energy_with_food ((energy num) (metabolism num) (food_value num) (max_energy num)) num
+  (max 0 (min max_energy (+ (- energy metabolism) food_value))))
