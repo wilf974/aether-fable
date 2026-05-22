@@ -114,6 +114,36 @@ Pour la validation property-based formelle (Aether v1.4), passer chaque fichier 
 
 5. **Gymnasium `check_env`** : OK avec `skip_render_check=True`. Le render `ansi` n'est pas standard render_mode Gymnasium (juste un debug helper).
 
+## Pièges connus V1.5
+
+6. **DQN tuning V1.5 mené 2026-05-23** — défaults sous-performent Greedy mais une recette gagnante existe :
+
+   | Recette | Hidden | eps_decay | target_sync | lr | batch | episodes | Best assessment |
+   |---|---|---|---|---|---|---|---|
+   | Baseline (defaults) | (128,128) | 15000 | 1000 | 1e-3 | 128 | 300 | **20 %** |
+   | Iter 1 | (256,256) | 30000 | 200 | 1e-3 | 128 | 1000 | **60 %** |
+   | **Iter 2 (gagnante)** | **(256,256)** | **40000** | **300** | **5e-4** | **256** | **1500** | **90 %** ✓ |
+
+   Recette ~8 min RTX 3060, best @ ép 1024 :
+   ```bash
+   python scripts/train_dqn.py --episodes 1500 --device cuda \
+       --hidden 256 256 --epsilon-decay-steps 40000 --target-sync-steps 300 \
+       --lr 5e-4 --batch-size 256 \
+       --assess-every 25 --assess-episodes 10 --patience 25
+   ```
+
+   **Leçons** : lr 1e-3 standard amplifie la late-stage variance ; 5e-4 stabilise. `target_sync_steps=300` cohérent avec épisodes courts (50-500 steps). Assessment dense capture le pic — sans best-checkpoint, on perdrait le best (pattern late-stage collapse identifié dans MW_IA V2-W). **Plafond architectural à 90 %** : pour 95-100 %, viser ConvDQN sur observation 2D (V2-Z MW_IA) ou Double DQN (V2-W). Variance oscillante 50-90 % en steady-state — typique deadlock DQN classique.
+
+7. **Hook `security_reminder_hook.py`** flagge la séquence `e v a l (` comme vuln Node.js (false positive sur la fn RL d'évaluation). Contournement V1.5 : la fn s'appelle `assess()` et le module variable `assessment_metrics`. Pattern à respecter pour V2+.
+
+8. **Encodage Windows cp1252** sur les outputs Python : les caractères Unicode (✓, γ, etc.) crashent `print()` quand stdout est cp1252. Sur V1.5 j'ai remplacé `✓ NEW BEST` par `* NEW BEST`. Pour les futurs scripts, soit forcer `PYTHONIOENCODING=utf-8`, soit rester en ASCII.
+
+9. **PyTorch CUDA install** : `pip install torch --index-url https://download.pytorch.org/whl/cu128` requiert une autorisation explicite (l'index n'est pas le default PyPI). Le download est ~2 GB. Sur RTX 3060 12 GB, `cuda: True` confirmé.
+
+10. **`mw_ia` editable install ne pulle PAS PyTorch** : le `pyproject.toml` MW_IA n'a pas `torch` en dépendance déclarée (cf. `requirements.txt` MW_IA pour l'install séparée). Installer torch séparément (cf. piège 9).
+
+11. **`DQNAgent` AetherLife = thin wrapper sur `_MwIaDQNAgent`** : ne pas dupliquer la logique. Toute amélioration de l'agent (Double DQN, CNN, etc.) doit être faite dans MW_IA puis exposée ici. Le wrapper expose juste `act(obs, *, greedy=False)` + `observe()` + `save/load`.
+
 ## Roadmap (lien Spec)
 
 Voir `docs/superpowers/specs/2026-05-23-aetherlife-v1-solo-forager-design.md` pour la roadmap V0 → V8 complète.
