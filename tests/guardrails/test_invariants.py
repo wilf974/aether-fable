@@ -6,11 +6,14 @@ import pytest
 from aetherlife.guardrails.exceptions import InvariantViolationError
 from aetherlife.guardrails.invariants import (
     clamp_pos,
+    clamp_temp,
     energy_gained,
     energy_no_food,
     energy_with_food,
     is_terminated,
     pop_after_deaths,
+    season_phase,
+    seasonal_lambda,
     step_reward,
     total_ids_emitted,
 )
@@ -148,6 +151,55 @@ def test_i7_energy_gained(n_food_eaten: int, food_value: float, expected: float)
 def test_i8_total_ids_emitted(n_alive: int, n_dead: int, expected: int) -> None:
     """I8 — examples strictement identiques à i8_total_ids_emitted.aether."""
     assert total_ids_emitted(n_alive, n_dead) == expected
+
+
+@pytest.mark.parametrize(
+    "step_count,season_period,expected",
+    [
+        (0, 200, 0.0),
+        (50, 200, 0.25),
+        (100, 200, 0.5),
+        (199, 200, 0.995),
+        (200, 200, 0.0),
+        (400, 200, 0.0),
+        (250, 200, 0.25),
+    ],
+)
+def test_i9_season_phase(step_count: int, season_period: int, expected: float) -> None:
+    """I9 — examples strictement identiques à i9_season_phase.aether."""
+    assert season_phase(step_count, season_period) == expected
+
+
+def test_i9_invariants() -> None:
+    """I9 — 0 ≤ result < 1."""
+    for step in range(0, 1000, 13):
+        for period in [10, 50, 200, 365]:
+            r = season_phase(step, period)
+            assert 0 <= r < 1
+
+
+@pytest.mark.parametrize(
+    "temp,tmin,tmax,expected",
+    [
+        (-50, -10, 30, -10),
+        (50, -10, 30, 30),
+        (15, -10, 30, 15),
+        (-10, -10, 30, -10),
+        (30, -10, 30, 30),
+    ],
+)
+def test_i10_clamp_temp(temp: float, tmin: float, tmax: float, expected: float) -> None:
+    """I10 — examples strictement identiques à i10_clamp_temp.aether."""
+    assert clamp_temp(temp, tmin, tmax) == expected
+
+
+@pytest.mark.parametrize(
+    "base,factor,expected",
+    [(1.0, 0.5, 0.5), (1.0, 0.0, 0.0), (2.0, 1.5, 3.0), (0, 1.0, 0), (1.0, -0.5, 0.0)],
+)
+def test_i11_seasonal_lambda(base: float, factor: float, expected: float) -> None:
+    """I11 — examples + cas négatif (clampé à 0)."""
+    assert seasonal_lambda(base, factor) == expected
 
 
 def test_invariant_violation_error_format() -> None:

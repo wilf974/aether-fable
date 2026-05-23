@@ -1,0 +1,8 @@
+(@intent "AetherLife I11 — lambda saisonnier toujours ≥ 0 (modulation positive)")
+(@example 1.0 0.5 0.5)
+(@example 1.0 0.0 0.0)
+(@example 2.0 1.5 3.0)
+(@example 0 1.0 0)
+(@invariant (>= result 0))
+(fn seasonal_lambda ((base_lambda num) (season_factor num)) num
+  (max 0 (* base_lambda season_factor)))

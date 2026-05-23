@@ -78,3 +78,30 @@ def total_ids_emitted(n_total_ids_alive: int, n_dead_so_far: int) -> int:
     Mirror de `aether/invariants/i8_total_ids_emitted.aether`.
     """
     return n_total_ids_alive + n_dead_so_far
+
+
+def season_phase(step_count: int, season_period: int) -> float:
+    """I9 — season_phase ∈ [0, 1) après chaque tick.
+
+    Mirror de `aether/invariants/i9_season_phase.aether`.
+    Invariants : 0 ≤ result < 1.
+    """
+    return (step_count % season_period) / season_period
+
+
+def clamp_temp(temp: float, temp_min: float, temp_max: float) -> float:
+    """I10 — température clampée dans [temp_min, temp_max].
+
+    Mirror de `aether/invariants/i10_clamp_temp.aether`.
+    Invariants : temp_min ≤ result ≤ temp_max.
+    """
+    return max(temp_min, min(temp_max, temp))
+
+
+def seasonal_lambda(base_lambda: float, season_factor: float) -> float:
+    """I11 — lambda saisonnier toujours ≥ 0 (modulation positive).
+
+    Mirror de `aether/invariants/i11_seasonal_lambda.aether`.
+    Invariants : result ≥ 0.
+    """
+    return max(0.0, base_lambda * season_factor)

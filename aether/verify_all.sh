@@ -16,6 +16,9 @@ EXPECTED=(
     "i6_pop_after_deaths.aether"
     "i7_energy_gained.aether"
     "i8_total_ids_emitted.aether"
+    "i9_season_phase.aether"
+    "i10_clamp_temp.aether"
+    "i11_seasonal_lambda.aether"
 )
 
 missing=0

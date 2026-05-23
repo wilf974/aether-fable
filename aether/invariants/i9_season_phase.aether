@@ -1,0 +1,12 @@
+(@intent "AetherLife I9 — season_phase ∈ [0, 1) après chaque tick")
+(@example 0 200 0)
+(@example 50 200 0.25)
+(@example 100 200 0.5)
+(@example 199 200 0.995)
+(@example 200 200 0)
+(@example 400 200 0)
+(@example 250 200 0.25)
+(@invariant (>= result 0))
+(@invariant (< result 1))
+(fn season_phase ((step_count num) (season_period num)) num
+  (/ (% step_count season_period) season_period))
