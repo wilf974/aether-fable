@@ -1,0 +1,8 @@
+(@intent "AetherLife I17 — coût de construction = énergie consommée, strict positif")
+(@example 100 20 80)
+(@example 50 30 20)
+(@example 30 30 0)
+(@invariant (= result (- energy_before build_cost)))
+(@invariant (>= result 0))
+(fn energy_after_build ((energy_before num) (build_cost num)) num
+  (max 0 (- energy_before build_cost)))

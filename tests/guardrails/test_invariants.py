@@ -9,12 +9,15 @@ from aetherlife.guardrails.invariants import (
     child_generation,
     clamp_pos,
     clamp_temp,
+    energy_after_build,
     energy_gained,
     energy_no_food,
     energy_with_food,
     is_terminated,
+    nests_after_build,
     pop_after_births,
     pop_after_deaths,
+    rest_energy_gain,
     season_phase,
     seasonal_lambda,
     step_reward,
@@ -246,6 +249,44 @@ def test_i14_invariants() -> None:
             for mp in [100, 200]:
                 r = pop_after_births(pb, nb, mp)
                 assert pb <= r <= mp
+
+
+@pytest.mark.parametrize(
+    "energy,bonus,max_e,expected",
+    [(50, 5, 100, 55), (95, 10, 100, 100), (99, 5, 100, 100), (0, 5, 100, 5)],
+)
+def test_i15_rest_energy_gain(
+    energy: float, bonus: float, max_e: float, expected: float
+) -> None:
+    """I15 — examples strictement identiques à i15_rest_energy_gain.aether."""
+    assert rest_energy_gain(energy, bonus, max_e) == expected
+
+
+def test_i15_invariants() -> None:
+    """I15 — energy_before ≤ result ≤ max_energy."""
+    for e in [0, 10, 50, 90, 99]:
+        for b in [0, 5, 20]:
+            for me in [100, 200]:
+                r = rest_energy_gain(e, b, me)
+                assert e <= r <= me
+
+
+@pytest.mark.parametrize(
+    "current,built,expected",
+    [(0, 1, 1), (1, 1, 1), (1, 0, 1), (0, 0, 0)],
+)
+def test_i16_nests_after_build(current: int, built: int, expected: int) -> None:
+    """I16 — examples strictement identiques à i16_nests_after_build.aether."""
+    assert nests_after_build(current, built) == expected
+
+
+@pytest.mark.parametrize(
+    "energy,cost,expected",
+    [(100, 20, 80), (50, 30, 20), (30, 30, 0)],
+)
+def test_i17_energy_after_build(energy: float, cost: float, expected: float) -> None:
+    """I17 — examples strictement identiques à i17_energy_after_build.aether."""
+    assert energy_after_build(energy, cost) == expected
 
 
 def test_invariant_violation_error_format() -> None:

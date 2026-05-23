@@ -23,13 +23,16 @@ from aetherlife.guardrails.invariants import (
     child_generation,
     clamp_pos,
     clamp_temp,
+    energy_after_build,
     energy_no_food,
     energy_with_food,
     is_terminated,
+    rest_energy_gain,
     season_phase,
     seasonal_lambda,
     step_reward,
 )
+from aetherlife.world.construction import BuildConfig, NestRecord
 from aetherlife.world.food_grid import Action, _DELTAS
 from aetherlife.world.multi_agent_grid import _AgentState
 from aetherlife.world.reproduction import LineageEdge, ReproductionConfig
@@ -99,6 +102,7 @@ class SeasonalMultiAgentConfig:
     max_steps: int = 1000
     seasonal: SeasonalConfig = SeasonalConfig()
     reproduction: ReproductionConfig = ReproductionConfig()
+    build: BuildConfig = BuildConfig()
 
     def __post_init__(self) -> None:
         if self.rows <= 0 or self.cols <= 0:
@@ -196,6 +200,9 @@ class SeasonalMultiAgentFoodGrid:
         self._lineage: list[LineageEdge] = []
         self._next_agent_id: int = 0
         self._births_last_step: list[int] = []
+        # V5 construction
+        self._nests: dict[int, NestRecord] = {}
+        self._builds_last_step: list[NestRecord] = []
 
     @property
     def n_actions(self) -> int:
@@ -253,6 +260,23 @@ class SeasonalMultiAgentFoodGrid:
     def n_births_total(self) -> int:
         return len(self._lineage)
 
+    # V5 construction state
+    @property
+    def nests(self) -> dict[int, NestRecord]:
+        return dict(self._nests)
+
+    @property
+    def n_nests(self) -> int:
+        return len(self._nests)
+
+    @property
+    def builds_last_step(self) -> list[NestRecord]:
+        return list(self._builds_last_step)
+
+    @property
+    def nest_positions(self) -> set[tuple[int, int]]:
+        return {n.pos for n in self._nests.values()}
+
     def agent_state(self, agent_id: int) -> _AgentState:
         for a in self._agents:
             if a.agent_id == agent_id:
@@ -285,6 +309,8 @@ class SeasonalMultiAgentFoodGrid:
         self._next_agent_id = self.cfg.n_agents
         self._lineage = []
         self._births_last_step = []
+        self._nests = {}
+        self._builds_last_step = []
         self._initial_food_layout()
         self._refresh_temperature()
         return (
@@ -334,12 +360,25 @@ class SeasonalMultiAgentFoodGrid:
                 agent.energy = energy_no_food(agent.energy, local_metabolism)
             ate_counts[agent.agent_id] = ate
 
+            # V5 — rest bonus si l'agent est sur son propre nid
+            own_nest = self._nests.get(agent.agent_id)
+            if (
+                self.cfg.build.enabled
+                and own_nest is not None
+                and own_nest.pos == agent.pos
+            ):
+                agent.energy = rest_energy_gain(
+                    agent.energy, self.cfg.build.rest_bonus, self.cfg.max_energy
+                )
+
             r_val = step_reward(local_metabolism, self.cfg.food_value, ate)
             if is_terminated(agent.energy):
                 agent.alive = False
                 r_val -= self.cfg.death_penalty
                 terminated[agent.agent_id] = True
                 truncated[agent.agent_id] = False
+                if agent.agent_id in self._nests:
+                    del self._nests[agent.agent_id]
             else:
                 terminated[agent.agent_id] = False
             rewards[agent.agent_id] = float(r_val)
@@ -353,6 +392,11 @@ class SeasonalMultiAgentFoodGrid:
         self._births_last_step = []
         if self.cfg.reproduction.enabled:
             self._try_reproductions()
+
+        # V5 — construction automatique
+        self._builds_last_step = []
+        if self.cfg.build.enabled:
+            self._try_constructions()
 
         # Refresh temperature pour le tick courant
         self._refresh_temperature()
@@ -417,6 +461,33 @@ class SeasonalMultiAgentFoodGrid:
                 )
             )
 
+    def _try_constructions(self) -> None:
+        """V5 — construction auto pour env saisonnier (idem MultiAgentFoodGrid)."""
+        bcfg = self.cfg.build
+        nest_pos_set = self.nest_positions
+        for agent in self._agents:
+            if not agent.alive:
+                continue
+            if agent.agent_id in self._nests:
+                continue
+            if agent.energy < bcfg.energy_threshold:
+                continue
+            if (self._step_count - agent.last_build_tick) < bcfg.cooldown_ticks:
+                continue
+            r, c = agent.pos
+            if self._food_mask[r, c]:
+                continue
+            if agent.pos in nest_pos_set:
+                continue
+            agent.energy = energy_after_build(agent.energy, bcfg.build_cost)
+            agent.last_build_tick = self._step_count
+            nest = NestRecord(
+                owner_id=agent.agent_id, pos=agent.pos, built_tick=self._step_count
+            )
+            self._nests[agent.agent_id] = nest
+            self._builds_last_step.append(nest)
+            nest_pos_set.add(agent.pos)
+
     def _find_free_adjacent(self, pos: tuple[int, int]) -> tuple[int, int] | None:
         r, c = pos
         agent_positions = {a.pos for a in self._agents if a.alive}
@@ -465,9 +536,14 @@ class SeasonalMultiAgentFoodGrid:
             return
         free = []
         agent_positions = {a.pos for a in self._agents if a.alive}
+        nest_pos = self.nest_positions
         for r in range(self.cfg.rows):
             for c in range(self.cfg.cols):
-                if not self._food_mask[r, c] and (r, c) not in agent_positions:
+                if (
+                    not self._food_mask[r, c]
+                    and (r, c) not in agent_positions
+                    and (r, c) not in nest_pos
+                ):
                     free.append((r, c))
         if not free:
             return

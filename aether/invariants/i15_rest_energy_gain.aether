@@ -1,0 +1,9 @@
+(@intent "AetherLife I15 — gain d'énergie au repos sur nid : energy_after ≤ max_energy, ≥ energy_before")
+(@example 50 5 100 55)
+(@example 95 10 100 100)
+(@example 99 5 100 100)
+(@example 0 5 100 5)
+(@invariant (>= result energy_before))
+(@invariant (<= result max_energy))
+(fn rest_energy_gain ((energy_before num) (rest_bonus num) (max_energy num)) num
+  (min max_energy (+ energy_before rest_bonus)))

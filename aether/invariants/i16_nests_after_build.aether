@@ -1,0 +1,9 @@
+(@intent "AetherLife I16 — nb de nids par agent ≤ 1 (au plus une construction propre)")
+(@example 0 1 1)
+(@example 1 1 1)
+(@example 1 0 1)
+(@example 0 0 0)
+(@invariant (<= result 1))
+(@invariant (>= result 0))
+(fn nests_after_build ((current_nests num) (built_this_tick num)) num
+  (min 1 (+ current_nests built_this_tick)))

@@ -22,6 +22,9 @@ EXPECTED=(
     "i12_child_generation.aether"
     "i13_child_birth_tick.aether"
     "i14_pop_after_births.aether"
+    "i15_rest_energy_gain.aether"
+    "i16_nests_after_build.aether"
+    "i17_energy_after_build.aether"
 )
 
 missing=0

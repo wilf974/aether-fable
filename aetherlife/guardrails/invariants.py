@@ -132,3 +132,32 @@ def pop_after_births(pop_before: int, n_births: int, max_pop: int) -> int:
     Invariants : pop_before ≤ result ≤ max_pop.
     """
     return min(max_pop, pop_before + n_births)
+
+
+def rest_energy_gain(
+    energy_before: float, rest_bonus: float, max_energy: float
+) -> float:
+    """I15 — gain énergie sur nid : clamp à max_energy, jamais < energy_before.
+
+    Mirror de `aether/invariants/i15_rest_energy_gain.aether`.
+    Invariants : energy_before ≤ result ≤ max_energy (avec rest_bonus ≥ 0).
+    """
+    return min(max_energy, energy_before + rest_bonus)
+
+
+def nests_after_build(current_nests: int, built_this_tick: int) -> int:
+    """I16 — nb de nids par agent ≤ 1.
+
+    Mirror de `aether/invariants/i16_nests_after_build.aether`.
+    Invariants : 0 ≤ result ≤ 1.
+    """
+    return min(1, current_nests + built_this_tick)
+
+
+def energy_after_build(energy_before: float, build_cost: float) -> float:
+    """I17 — énergie après construction = energy_before - build_cost, ≥ 0.
+
+    Mirror de `aether/invariants/i17_energy_after_build.aether`.
+    Précondition (à enforcer côté caller) : energy_before ≥ build_cost.
+    """
+    return max(0.0, energy_before - build_cost)

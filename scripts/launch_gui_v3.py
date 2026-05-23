@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 
 from aetherlife.viz.pygame_viewer_v3 import run_gui_v3
+from aetherlife.world.construction import BuildConfig
 from aetherlife.world.reproduction import ReproductionConfig
 from aetherlife.world.seasonal_grid import SeasonalConfig, SeasonalMultiAgentConfig
 
@@ -79,6 +80,21 @@ MODE_PRESETS: dict[str, dict] = {
         autumn_factor=1.3,
         max_steps=3000,
     ),
+    # V5 — mode civilization : reproduction + construction activées
+    "civ": dict(
+        metabolism=0.4,
+        food_value=15.0,
+        start_energy=120.0,
+        max_energy=180.0,
+        death_penalty=5.0,
+        initial_food_density=0.10,
+        food_respawn_lambda=2.5,
+        winter_factor=0.6,
+        summer_factor=1.2,
+        spring_factor=1.8,
+        autumn_factor=1.3,
+        max_steps=3000,
+    ),
 }
 
 
@@ -124,6 +140,15 @@ def main() -> None:
     parser.add_argument("--repro-cost", type=float, default=40.0)
     parser.add_argument("--repro-cooldown", type=int, default=30)
     parser.add_argument("--repro-max-pop", type=int, default=80)
+    # V5 construction (activée seulement en mode 'civ' par défaut)
+    parser.add_argument(
+        "--build", type=str, default=None, choices=["on", "off"],
+        help="Force construction on/off (default: on si --mode civ)",
+    )
+    parser.add_argument("--build-threshold", type=float, default=90.0)
+    parser.add_argument("--build-cost", type=float, default=25.0)
+    parser.add_argument("--build-rest-bonus", type=float, default=3.0)
+    parser.add_argument("--build-cooldown", type=int, default=50)
     args = parser.parse_args()
 
     preset = MODE_PRESETS[args.mode]
@@ -143,9 +168,9 @@ def main() -> None:
         temp_min=args.temp_min,
         temp_max=args.temp_max,
     )
-    # Reproduction : auto-on en mode evolve, sinon off ; --reproduction force
+    # Reproduction : auto-on en mode evolve OU civ, sinon off ; --reproduction force
     if args.reproduction is None:
-        repro_enabled = args.mode == "evolve"
+        repro_enabled = args.mode in ("evolve", "civ")
     else:
         repro_enabled = args.reproduction == "on"
 
@@ -155,6 +180,20 @@ def main() -> None:
         energy_cost=args.repro_cost,
         cooldown_ticks=args.repro_cooldown,
         max_population=args.repro_max_pop,
+    )
+
+    # V5 construction : auto-on en mode civ uniquement, sinon off
+    if args.build is None:
+        build_enabled = args.mode == "civ"
+    else:
+        build_enabled = args.build == "on"
+
+    build = BuildConfig(
+        enabled=build_enabled,
+        energy_threshold=args.build_threshold,
+        build_cost=args.build_cost,
+        rest_bonus=args.build_rest_bonus,
+        cooldown_ticks=args.build_cooldown,
     )
 
     cfg = SeasonalMultiAgentConfig(
@@ -169,10 +208,11 @@ def main() -> None:
         max_steps=pick("max_steps"),
         seasonal=seasonal,
         reproduction=repro,
+        build=build,
     )
 
     print(
-        f"AetherLife V4 — mode={args.mode}  N={args.n_agents}  "
+        f"AetherLife V5 — mode={args.mode}  N={args.n_agents}  "
         f"grid={args.rows}x{args.cols}  period={args.season_period}\n"
         f"  metabolism={cfg.metabolism}  food_value={cfg.food_value}  "
         f"start_energy={cfg.start_energy}  max_steps={cfg.max_steps}\n"
@@ -183,6 +223,9 @@ def main() -> None:
         f"  reproduction={repro.enabled}  threshold={repro.energy_threshold}  "
         f"cost={repro.energy_cost}  cooldown={repro.cooldown_ticks}t  "
         f"max_pop={repro.max_population}\n"
+        f"  construction={build.enabled}  threshold={build.energy_threshold}  "
+        f"cost={build.build_cost}  rest_bonus={build.rest_bonus}  "
+        f"cooldown={build.cooldown_ticks}t\n"
     )
 
     run_gui_v3(cfg, cell_px=args.cell_px, tick_delay_ms=args.tick_delay_ms, seed=args.seed)

@@ -21,11 +21,14 @@ from aetherlife.guardrails.invariants import (
     child_birth_tick,
     child_generation,
     clamp_pos,
+    energy_after_build,
     energy_no_food,
     energy_with_food,
     is_terminated,
+    rest_energy_gain,
     step_reward,
 )
+from aetherlife.world.construction import BuildConfig, NestRecord
 from aetherlife.world.food_grid import Action, _DELTAS
 from aetherlife.world.reproduction import LineageEdge, ReproductionConfig
 
@@ -46,6 +49,7 @@ class MultiAgentForagerConfig:
     food_respawn_lambda: float = 1.0
     max_steps: int = 1000
     reproduction: ReproductionConfig = ReproductionConfig()  # V4 default disabled
+    build: BuildConfig = BuildConfig()                         # V5 default disabled
 
     def __post_init__(self) -> None:
         if self.rows <= 0 or self.cols <= 0:
@@ -94,6 +98,8 @@ class _AgentState:
     birth_tick: int = 0
     generation: int = 0
     last_repro_tick: int = -10**9   # permet la 1ère reproduction immédiate
+    # V5 — construction
+    last_build_tick: int = -10**9
 
 
 class MultiAgentFoodGrid:
@@ -113,6 +119,9 @@ class MultiAgentFoodGrid:
         self._lineage: list[LineageEdge] = []
         self._next_agent_id: int = 0
         self._births_last_step: list[int] = []  # agent_ids nés au step courant
+        # V5 — construction
+        self._nests: dict[int, NestRecord] = {}      # owner_id → nid
+        self._builds_last_step: list[NestRecord] = []
 
     @property
     def n_actions(self) -> int:
@@ -160,6 +169,25 @@ class MultiAgentFoodGrid:
     def n_births_total(self) -> int:
         return len(self._lineage)
 
+    # ─── V5 construction state ─────────────────────────────────────────
+    @property
+    def nests(self) -> dict[int, NestRecord]:
+        """Dict owner_id → NestRecord (copie pour éviter mutation externe)."""
+        return dict(self._nests)
+
+    @property
+    def n_nests(self) -> int:
+        return len(self._nests)
+
+    @property
+    def builds_last_step(self) -> list[NestRecord]:
+        return list(self._builds_last_step)
+
+    @property
+    def nest_positions(self) -> set[tuple[int, int]]:
+        """Set des cellules occupées par un nid."""
+        return {n.pos for n in self._nests.values()}
+
     def agent_state(self, agent_id: int) -> _AgentState:
         # V4 : agent_id n'est plus garanti = index. Lookup explicite.
         for a in self._agents:
@@ -188,6 +216,8 @@ class MultiAgentFoodGrid:
         self._next_agent_id = self.cfg.n_agents
         self._lineage = []
         self._births_last_step = []
+        self._nests = {}
+        self._builds_last_step = []
         self._initial_food_layout()
         return (
             {a.agent_id: self._observation_for(a.agent_id) for a in self._agents},
@@ -232,12 +262,26 @@ class MultiAgentFoodGrid:
                 agent.energy = energy_no_food(agent.energy, self.cfg.metabolism)
             ate_counts[agent.agent_id] = ate
 
+            # V5 — rest bonus si l'agent est sur son propre nid
+            own_nest = self._nests.get(agent.agent_id)
+            if (
+                self.cfg.build.enabled
+                and own_nest is not None
+                and own_nest.pos == agent.pos
+            ):
+                agent.energy = rest_energy_gain(
+                    agent.energy, self.cfg.build.rest_bonus, self.cfg.max_energy
+                )
+
             r = step_reward(self.cfg.metabolism, self.cfg.food_value, ate)
             if is_terminated(agent.energy):
                 agent.alive = False
                 r -= self.cfg.death_penalty
                 terminated[agent.agent_id] = True
                 truncated[agent.agent_id] = False
+                # V5 — cleanup nid du défunt
+                if agent.agent_id in self._nests:
+                    del self._nests[agent.agent_id]
             else:
                 terminated[agent.agent_id] = False
             rewards[agent.agent_id] = float(r)
@@ -253,6 +297,11 @@ class MultiAgentFoodGrid:
         self._births_last_step = []
         if self.cfg.reproduction.enabled:
             self._try_reproductions()
+
+        # V5 — construction automatique
+        self._builds_last_step = []
+        if self.cfg.build.enabled:
+            self._try_constructions()
 
         self._respawn_food()
 
@@ -328,6 +377,43 @@ class MultiAgentFoodGrid:
                 )
             )
 
+    def _try_constructions(self) -> None:
+        """V5 — chaque agent vivant éligible tente de construire un nid sur sa cellule.
+
+        Conditions :
+            - alive
+            - energy ≥ build.energy_threshold
+            - step_count - last_build_tick ≥ cooldown_ticks
+            - pas déjà de nid pour cet agent (max 1 par I16)
+            - pas de food sur la cellule (évite collision avec respawn)
+            - pas de nid d'autre agent sur cette cellule
+        """
+        bcfg = self.cfg.build
+        nest_pos_set = self.nest_positions
+        for agent in self._agents:
+            if not agent.alive:
+                continue
+            if agent.agent_id in self._nests:
+                continue
+            if agent.energy < bcfg.energy_threshold:
+                continue
+            if (self._step_count - agent.last_build_tick) < bcfg.cooldown_ticks:
+                continue
+            r, c = agent.pos
+            if self._food_mask[r, c]:
+                continue
+            if agent.pos in nest_pos_set:
+                continue
+            # Build
+            agent.energy = energy_after_build(agent.energy, bcfg.build_cost)
+            agent.last_build_tick = self._step_count
+            nest = NestRecord(
+                owner_id=agent.agent_id, pos=agent.pos, built_tick=self._step_count
+            )
+            self._nests[agent.agent_id] = nest
+            self._builds_last_step.append(nest)
+            nest_pos_set.add(agent.pos)
+
     def _find_free_adjacent(self, pos: tuple[int, int]) -> tuple[int, int] | None:
         """Cherche une cellule 4-voisine libre (pas d'agent vivant)."""
         r, c = pos
@@ -373,9 +459,14 @@ class MultiAgentFoodGrid:
             return
         free = []
         agent_positions = {a.pos for a in self._agents if a.alive}
+        nest_pos = self.nest_positions
         for r in range(self.cfg.rows):
             for c in range(self.cfg.cols):
-                if not self._food_mask[r, c] and (r, c) not in agent_positions:
+                if (
+                    not self._food_mask[r, c]
+                    and (r, c) not in agent_positions
+                    and (r, c) not in nest_pos
+                ):
                     free.append((r, c))
         if len(free) == 0:
             return

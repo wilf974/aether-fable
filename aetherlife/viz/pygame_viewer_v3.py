@@ -41,6 +41,11 @@ BIRTH_FLASH_FRAMES = 20         # durée du flash bleu sur l'enfant à la naissa
 BIRTH_FLASH_COLOR = (120, 200, 255)
 POP_CURVE_SAMPLES = 200         # nb max de points dans la courbe population
 POP_CURVE_H = 40                # hauteur du mini-graph en pixels
+# V5 — construction
+BUILD_FLASH_FRAMES = 15         # flash de construction
+BUILD_FLASH_COLOR = (255, 200, 100)
+NEST_ALPHA = 150                # opacité des nids dessinés
+NEST_BORDER_ALPHA = 220
 
 
 # ─── palette ───────────────────────────────────────────────────────────────
@@ -146,13 +151,15 @@ def run_gui_v3(
     }
     eat_flash_frames: dict[int, int] = {}
     birth_flash_frames: dict[int, int] = {}     # V4 — flash bleu sur enfant
+    build_flash_frames: dict[int, int] = {}     # V5 — flash sur nid neuf
     pop_curve: deque = deque(maxlen=POP_CURVE_SAMPLES)
     pop_curve.append(env.n_alive)
     show_trails = True
+    show_nests = True
 
     def reset_episode(new_seed: int | None = None) -> None:
         nonlocal obs_dict, tracker, showing_report, trails, eat_flash_frames
-        nonlocal birth_flash_frames, pop_curve
+        nonlocal birth_flash_frames, build_flash_frames, pop_curve
         s = new_seed if new_seed is not None else seed + episode_idx
         obs_dict, _ = env.reset(seed=s)
         tracker = EpisodeStatsTracker(n_agents=env.cfg.n_agents, track_seasons=True)
@@ -161,6 +168,7 @@ def run_gui_v3(
         trails = {a.agent_id: deque(maxlen=TRAIL_LEN) for a in env._agents}  # noqa: SLF001
         eat_flash_frames = {}
         birth_flash_frames = {}
+        build_flash_frames = {}
         pop_curve = deque(maxlen=POP_CURVE_SAMPLES)
         pop_curve.append(env.n_alive)
 
@@ -205,6 +213,8 @@ def run_gui_v3(
                     show_temp = not show_temp
                 elif event.key == pygame.K_l:
                     show_trails = not show_trails
+                elif event.key == pygame.K_b:
+                    show_nests = not show_nests
                 elif event.key == pygame.K_UP:
                     delay_ms = max(0, delay_ms - 15)
                 elif event.key == pygame.K_DOWN:
@@ -225,6 +235,9 @@ def run_gui_v3(
             for child_id in env.births_last_step:
                 birth_flash_frames[child_id] = BIRTH_FLASH_FRAMES
                 trails.setdefault(child_id, deque(maxlen=TRAIL_LEN))
+            # V5 — flash sur les nids fraîchement construits
+            for nest in env.builds_last_step:
+                build_flash_frames[nest.owner_id] = BUILD_FLASH_FRAMES
             # V4 — sample pop curve
             pop_curve.append(env.n_alive)
             obs_dict = {aid: o for aid, o in next_obs.items() if env.agent_state(aid).alive}
@@ -254,6 +267,54 @@ def run_gui_v3(
                 pygame.draw.rect(screen, color, rect)
                 if cell_px >= 12:
                     pygame.draw.rect(screen, GRID_LINE, rect, 1)
+
+        # V5 — draw nests under everything else (so agents are on top)
+        if show_nests:
+            for nest in env.nests.values():
+                nr, nc = nest.pos
+                nx = nc * cell_px
+                ny = nr * cell_px
+                nest_color = AGENT_COLORS[nest.owner_id % len(AGENT_COLORS)]
+                nest_surf = pygame.Surface((cell_px, cell_px), pygame.SRCALPHA)
+                # Fond coloré semi-transparent
+                pygame.draw.rect(
+                    nest_surf, (*nest_color, NEST_ALPHA),
+                    nest_surf.get_rect(),
+                )
+                # Bordure pleine
+                pygame.draw.rect(
+                    nest_surf, (*nest_color, NEST_BORDER_ALPHA),
+                    nest_surf.get_rect(), 2,
+                )
+                # Petite croix au centre (signature "nid")
+                cxc = cell_px // 2
+                cross_h = max(2, cell_px // 3)
+                pygame.draw.line(
+                    nest_surf, (255, 255, 255, NEST_BORDER_ALPHA),
+                    (cxc - cross_h // 2, cxc), (cxc + cross_h // 2, cxc), 2,
+                )
+                pygame.draw.line(
+                    nest_surf, (255, 255, 255, NEST_BORDER_ALPHA),
+                    (cxc, cxc - cross_h // 2), (cxc, cxc + cross_h // 2), 2,
+                )
+                screen.blit(nest_surf, (nx, ny))
+                # Build flash (anneau qui s'étend autour du nid)
+                if build_flash_frames.get(nest.owner_id, 0) > 0:
+                    bprog = 1.0 - (build_flash_frames[nest.owner_id] / BUILD_FLASH_FRAMES)
+                    bflash_r = int(cell_px * (0.6 + 0.5 * bprog))
+                    bflash_alpha = int(220 * (1 - bprog))
+                    bfsurf = pygame.Surface(
+                        (bflash_r * 2 + 2, bflash_r * 2 + 2), pygame.SRCALPHA
+                    )
+                    pygame.draw.circle(
+                        bfsurf, (*BUILD_FLASH_COLOR, bflash_alpha),
+                        (bflash_r + 1, bflash_r + 1), bflash_r, 3,
+                    )
+                    screen.blit(
+                        bfsurf,
+                        (nx + cxc - bflash_r - 1, ny + cxc - bflash_r - 1),
+                    )
+                    build_flash_frames[nest.owner_id] -= 1
 
         # V3.8 — draw trails first (under agents)
         if show_trails:
@@ -369,7 +430,7 @@ def run_gui_v3(
         )
         line2 = (
             f"alive={env.n_alive:3d}/{total_pop:<3d}  births={env.n_births_total:3d}  "
-            f"food={env.food_count:4d}  episode#{episode_idx}"
+            f"nests={env.n_nests:3d}  food={env.food_count:4d}  ep#{episode_idx}"
         )
         line3 = f"last: {last_outcome}"
         line4 = "Mean food regen factors per season:"
@@ -381,7 +442,7 @@ def run_gui_v3(
         )
         controls = (
             "SPACE pause/next  R reset  N density  T heatmap  L trails  "
-            "↑/↓ speed  Q quit"
+            "B nests  ↑/↓ speed  Q quit"
         )
 
         screen.blit(font_lg.render(line1, True, season_tint), (12, hud_y0 + 8))
