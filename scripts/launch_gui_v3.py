@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 
 from aetherlife.viz.pygame_viewer_v3 import run_gui_v3
+from aetherlife.world.cache import CacheConfig
 from aetherlife.world.construction import BuildConfig
 from aetherlife.world.reproduction import ReproductionConfig
 from aetherlife.world.seasonal_grid import SeasonalConfig, SeasonalMultiAgentConfig
@@ -95,6 +96,36 @@ MODE_PRESETS: dict[str, dict] = {
         autumn_factor=1.3,
         max_steps=3000,
     ),
+    # V5.2 — mode tribe : reproduction + construction + heritage familial
+    "tribe": dict(
+        metabolism=0.4,
+        food_value=15.0,
+        start_energy=120.0,
+        max_energy=180.0,
+        death_penalty=5.0,
+        initial_food_density=0.10,
+        food_respawn_lambda=2.5,
+        winter_factor=0.6,
+        summer_factor=1.2,
+        spring_factor=1.8,
+        autumn_factor=1.3,
+        max_steps=3000,
+    ),
+    # V5.3 — mode prosper : tribe + caches food (stockage inter-temporel)
+    "prosper": dict(
+        metabolism=0.5,
+        food_value=14.0,
+        start_energy=100.0,
+        max_energy=200.0,
+        death_penalty=5.0,
+        initial_food_density=0.08,
+        food_respawn_lambda=1.8,
+        winter_factor=0.3,  # hiver plus dur → cache devient utile
+        summer_factor=1.3,
+        spring_factor=2.0,
+        autumn_factor=1.2,
+        max_steps=3000,
+    ),
 }
 
 
@@ -149,6 +180,20 @@ def main() -> None:
     parser.add_argument("--build-cost", type=float, default=25.0)
     parser.add_argument("--build-rest-bonus", type=float, default=3.0)
     parser.add_argument("--build-cooldown", type=int, default=50)
+    parser.add_argument(
+        "--family", type=lambda x: x.lower() == "on" if x else None,
+        default=None,
+        help="Force family inheritance on/off (default: on si --mode tribe/prosper)",
+    )
+    parser.add_argument(
+        "--cache", type=str, default=None, choices=["on", "off"],
+        help="Force cache on/off (default: on si --mode prosper)",
+    )
+    parser.add_argument("--cache-deposit-threshold", type=float, default=80.0)
+    parser.add_argument("--cache-withdrawal-threshold", type=float, default=60.0)
+    parser.add_argument("--cache-capacity", type=float, default=80.0)
+    parser.add_argument("--cache-deposit-amount", type=float, default=4.0)
+    parser.add_argument("--cache-withdrawal-amount", type=float, default=4.0)
     args = parser.parse_args()
 
     preset = MODE_PRESETS[args.mode]
@@ -182,11 +227,23 @@ def main() -> None:
         max_population=args.repro_max_pop,
     )
 
-    # V5 construction : auto-on en mode civ uniquement, sinon off
+    # V5 construction : auto-on en mode civ/tribe/prosper, sinon off
     if args.build is None:
-        build_enabled = args.mode == "civ"
+        build_enabled = args.mode in ("civ", "tribe", "prosper")
     else:
         build_enabled = args.build == "on"
+
+    # V5.2 family inheritance : on automatiquement en mode tribe ou prosper
+    family_inheritance = (
+        args.family if args.family is not None
+        else args.mode in ("tribe", "prosper")
+    )
+
+    # V5.3 caches : auto-on en mode prosper uniquement
+    if args.cache is None:
+        cache_enabled = args.mode == "prosper"
+    else:
+        cache_enabled = args.cache == "on"
 
     build = BuildConfig(
         enabled=build_enabled,
@@ -194,6 +251,16 @@ def main() -> None:
         build_cost=args.build_cost,
         rest_bonus=args.build_rest_bonus,
         cooldown_ticks=args.build_cooldown,
+        family_inheritance=family_inheritance,
+    )
+
+    cache = CacheConfig(
+        enabled=cache_enabled,
+        deposit_threshold=args.cache_deposit_threshold,
+        withdrawal_threshold=args.cache_withdrawal_threshold,
+        max_capacity=args.cache_capacity,
+        deposit_amount=args.cache_deposit_amount,
+        withdrawal_amount=args.cache_withdrawal_amount,
     )
 
     cfg = SeasonalMultiAgentConfig(
@@ -209,10 +276,11 @@ def main() -> None:
         seasonal=seasonal,
         reproduction=repro,
         build=build,
+        cache=cache,
     )
 
     print(
-        f"AetherLife V5 — mode={args.mode}  N={args.n_agents}  "
+        f"AetherLife V5.3 — mode={args.mode}  N={args.n_agents}  "
         f"grid={args.rows}x{args.cols}  period={args.season_period}\n"
         f"  metabolism={cfg.metabolism}  food_value={cfg.food_value}  "
         f"start_energy={cfg.start_energy}  max_steps={cfg.max_steps}\n"
@@ -220,12 +288,10 @@ def main() -> None:
         f"  season factors (sp/su/au/wi): "
         f"{seasonal.spring_lambda_factor}/{seasonal.summer_lambda_factor}/"
         f"{seasonal.autumn_lambda_factor}/{seasonal.winter_lambda_factor}\n"
-        f"  reproduction={repro.enabled}  threshold={repro.energy_threshold}  "
-        f"cost={repro.energy_cost}  cooldown={repro.cooldown_ticks}t  "
-        f"max_pop={repro.max_population}\n"
-        f"  construction={build.enabled}  threshold={build.energy_threshold}  "
-        f"cost={build.build_cost}  rest_bonus={build.rest_bonus}  "
-        f"cooldown={build.cooldown_ticks}t\n"
+        f"  reproduction={repro.enabled}  build={build.enabled}  "
+        f"family_inheritance={build.family_inheritance}\n"
+        f"  cache={cache.enabled}  deposit>={cache.deposit_threshold}  "
+        f"withdraw<{cache.withdrawal_threshold}  cap={cache.max_capacity}\n"
     )
 
     run_gui_v3(cfg, cell_px=args.cell_px, tick_delay_ms=args.tick_delay_ms, seed=args.seed)

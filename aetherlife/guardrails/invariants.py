@@ -161,3 +161,34 @@ def energy_after_build(energy_before: float, build_cost: float) -> float:
     Précondition (à enforcer côté caller) : energy_before ≥ build_cost.
     """
     return max(0.0, energy_before - build_cost)
+
+
+def cache_after_deposit(
+    cache_before: float, deposit_amount: float, max_capacity: float
+) -> float:
+    """I18 — dépôt cache clampé à capacity.
+
+    Mirror de `aether/invariants/i18_cache_after_deposit.aether`.
+    Invariants : cache_before ≤ result ≤ max_capacity.
+    """
+    return min(max_capacity, cache_before + deposit_amount)
+
+
+def cache_after_withdrawal(cache_before: float, withdrawal_amount: float) -> float:
+    """I19 — retrait cache ≥ 0 (jamais négatif).
+
+    Mirror de `aether/invariants/i19_cache_after_withdrawal.aether`.
+    Invariants : 0 ≤ result ≤ cache_before.
+    """
+    return max(0.0, cache_before - withdrawal_amount)
+
+
+def energy_after_withdrawal(
+    energy_before: float, withdrawal_amount: float, max_energy: float
+) -> float:
+    """I20 — énergie agent après retrait du cache : clamp [energy_before, max_energy].
+
+    Mirror de `aether/invariants/i20_energy_after_withdrawal.aether`.
+    Invariants : energy_before ≤ result ≤ max_energy.
+    """
+    return min(max_energy, energy_before + withdrawal_amount)

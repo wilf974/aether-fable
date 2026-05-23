@@ -18,16 +18,20 @@ from typing import Any
 import numpy as np
 
 from aetherlife.guardrails.invariants import (
+    cache_after_deposit,
+    cache_after_withdrawal,
     child_birth_tick,
     child_generation,
     clamp_pos,
     energy_after_build,
+    energy_after_withdrawal,
     energy_no_food,
     energy_with_food,
     is_terminated,
     rest_energy_gain,
     step_reward,
 )
+from aetherlife.world.cache import CacheConfig
 from aetherlife.world.construction import BuildConfig, NestRecord
 from aetherlife.world.food_grid import Action, _DELTAS
 from aetherlife.world.reproduction import LineageEdge, ReproductionConfig
@@ -50,6 +54,7 @@ class MultiAgentForagerConfig:
     max_steps: int = 1000
     reproduction: ReproductionConfig = ReproductionConfig()  # V4 default disabled
     build: BuildConfig = BuildConfig()                         # V5 default disabled
+    cache: CacheConfig = CacheConfig()                         # V5.3 default disabled
 
     def __post_init__(self) -> None:
         if self.rows <= 0 or self.cols <= 0:
@@ -128,6 +133,12 @@ class MultiAgentFoodGrid:
         self._rest_energy_gained_total: float = 0.0
         # V5.2 — family inheritance metrics
         self._family_nest_visits_total: int = 0
+        # V5.3 — cache state + métriques
+        self._nest_food_stock: dict[int, float] = {}      # owner_id → cache content
+        self._cache_deposits_total: int = 0
+        self._cache_withdrawals_total: int = 0
+        self._cache_energy_deposited_total: float = 0.0
+        self._cache_energy_withdrawn_total: float = 0.0
 
     @property
     def n_actions(self) -> int:
@@ -209,6 +220,33 @@ class MultiAgentFoodGrid:
         """V5.2 — ticks où un agent était sur un nid de sa lignée (incl. propre)."""
         return self._family_nest_visits_total
 
+    # ─── V5.3 cache state ──────────────────────────────────────────────
+    @property
+    def nest_food_stock(self) -> dict[int, float]:
+        """Dict owner_id → quantité stockée dans le cache."""
+        return dict(self._nest_food_stock)
+
+    @property
+    def total_cached_food(self) -> float:
+        """Somme de tous les caches actifs."""
+        return sum(self._nest_food_stock.values())
+
+    @property
+    def cache_deposits_total(self) -> int:
+        return self._cache_deposits_total
+
+    @property
+    def cache_withdrawals_total(self) -> int:
+        return self._cache_withdrawals_total
+
+    @property
+    def cache_energy_deposited_total(self) -> float:
+        return self._cache_energy_deposited_total
+
+    @property
+    def cache_energy_withdrawn_total(self) -> float:
+        return self._cache_energy_withdrawn_total
+
     # ─── V5.2 lineage helpers ──────────────────────────────────────────
     def root_ancestor_of(self, agent_id: int) -> int:
         """Retourne le root_ancestor_id d'un agent (par lookup direct)."""
@@ -225,6 +263,28 @@ class MultiAgentFoodGrid:
         return any(
             a.alive and a.root_ancestor_id == root_id for a in self._agents
         )
+
+    def _accessible_nest_owner(self, agent: _AgentState) -> int | None:
+        """V5.3 — owner_id du nid sur la cellule de l'agent et accessible.
+
+        Accessible = own nest OU nid familial (si family_inheritance).
+        Retourne None si pas de nid accessible sur cette cellule.
+        """
+        own_nest = self._nests.get(agent.agent_id)
+        if own_nest is not None and own_nest.pos == agent.pos:
+            return agent.agent_id
+        if not self.cfg.build.family_inheritance:
+            return None
+        for nest in self._nests.values():
+            if nest.pos != agent.pos:
+                continue
+            try:
+                owner_root = self.agent_state(nest.owner_id).root_ancestor_id
+            except KeyError:
+                owner_root = nest.owner_id
+            if owner_root == agent.root_ancestor_id:
+                return nest.owner_id
+        return None
 
     def agent_state(self, agent_id: int) -> _AgentState:
         # V4 : agent_id n'est plus garanti = index. Lookup explicite.
@@ -262,6 +322,12 @@ class MultiAgentFoodGrid:
         self._nest_visits_total = 0
         self._rest_energy_gained_total = 0.0
         self._family_nest_visits_total = 0    # V5.2
+        # V5.3 reset
+        self._nest_food_stock = {}
+        self._cache_deposits_total = 0
+        self._cache_withdrawals_total = 0
+        self._cache_energy_deposited_total = 0.0
+        self._cache_energy_withdrawn_total = 0.0
         self._initial_food_layout()
         return (
             {a.agent_id: self._observation_for(a.agent_id) for a in self._agents},
@@ -335,6 +401,48 @@ class MultiAgentFoodGrid:
                     self._family_nest_visits_total += 1
                     self._rest_energy_gained_total += agent.energy - e_before
 
+                    # V5.3 — cache deposit / withdrawal sur le nid (la valeur
+                    # `accessible_nest_owner_id` détermine quel cache utiliser)
+                    if self.cfg.cache.enabled:
+                        nest_owner_id = self._accessible_nest_owner(agent)
+                        if nest_owner_id is not None:
+                            ccfg = self.cfg.cache
+                            current_cache = self._nest_food_stock.get(nest_owner_id, 0.0)
+                            # Retrait prioritaire si l'agent a peu d'énergie
+                            if (
+                                agent.energy < ccfg.withdrawal_threshold
+                                and current_cache > 0
+                            ):
+                                effective = min(ccfg.withdrawal_amount, current_cache)
+                                new_cache = cache_after_withdrawal(current_cache, effective)
+                                actual_amount = current_cache - new_cache
+                                if actual_amount > 0:
+                                    new_energy = energy_after_withdrawal(
+                                        agent.energy, actual_amount, self.cfg.max_energy
+                                    )
+                                    energy_gained = new_energy - agent.energy
+                                    agent.energy = new_energy
+                                    self._nest_food_stock[nest_owner_id] = new_cache
+                                    self._cache_withdrawals_total += 1
+                                    self._cache_energy_withdrawn_total += energy_gained
+                            # Sinon dépôt si l'agent est en surplus
+                            elif (
+                                agent.energy >= ccfg.deposit_threshold
+                                and current_cache < ccfg.max_capacity
+                            ):
+                                available = min(
+                                    ccfg.deposit_amount, agent.energy - 1.0
+                                )
+                                new_cache = cache_after_deposit(
+                                    current_cache, available, ccfg.max_capacity
+                                )
+                                actual_deposit = new_cache - current_cache
+                                if actual_deposit > 0:
+                                    agent.energy -= actual_deposit
+                                    self._nest_food_stock[nest_owner_id] = new_cache
+                                    self._cache_deposits_total += 1
+                                    self._cache_energy_deposited_total += actual_deposit
+
             r = step_reward(self.cfg.metabolism, self.cfg.food_value, ate)
             if is_terminated(agent.energy):
                 agent.alive = False
@@ -343,12 +451,17 @@ class MultiAgentFoodGrid:
                 truncated[agent.agent_id] = False
                 # V5/V5.2 — cleanup nid du défunt
                 if agent.agent_id in self._nests:
+                    should_remove = False
                     if self.cfg.build.family_inheritance:
                         # V5.2 — conserver le nid si un descendant vit (same root)
                         if not self.has_living_descendant(agent.root_ancestor_id):
-                            del self._nests[agent.agent_id]
+                            should_remove = True
                     else:
+                        should_remove = True
+                    if should_remove:
                         del self._nests[agent.agent_id]
+                        # V5.3 — cache perdu avec le nid
+                        self._nest_food_stock.pop(agent.agent_id, None)
             else:
                 terminated[agent.agent_id] = False
             rewards[agent.agent_id] = float(r)

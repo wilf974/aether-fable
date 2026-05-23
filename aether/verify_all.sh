@@ -25,6 +25,9 @@ EXPECTED=(
     "i15_rest_energy_gain.aether"
     "i16_nests_after_build.aether"
     "i17_energy_after_build.aether"
+    "i18_cache_after_deposit.aether"
+    "i19_cache_after_withdrawal.aether"
+    "i20_energy_after_withdrawal.aether"
 )
 
 missing=0

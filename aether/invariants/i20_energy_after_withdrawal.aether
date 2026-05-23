@@ -1,0 +1,9 @@
+(@intent "AetherLife I20 — énergie agent après retrait du cache : clamp [energy, max_energy]")
+(@example 50 10 100 60)
+(@example 95 10 100 100)
+(@example 0 5 100 5)
+(@example 99 50 100 100)
+(@invariant (>= result energy_before))
+(@invariant (<= result max_energy))
+(fn energy_after_withdrawal ((energy_before num) (withdrawal_amount num) (max_energy num)) num
+  (min max_energy (+ energy_before withdrawal_amount)))

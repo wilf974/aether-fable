@@ -270,6 +270,13 @@ def run_gui_v3(
 
         # V5 — draw nests under everything else (so agents are on top)
         if show_nests:
+            # V5.3 — get cache info if available
+            cache_stock = getattr(env, "nest_food_stock", {})
+            cache_capacity = (
+                env.cfg.cache.max_capacity
+                if hasattr(env.cfg, "cache") and env.cfg.cache.enabled
+                else 1.0
+            )
             for nest in env.nests.values():
                 nr, nc = nest.pos
                 nx = nc * cell_px
@@ -297,6 +304,19 @@ def run_gui_v3(
                     nest_surf, (255, 255, 255, NEST_BORDER_ALPHA),
                     (cxc, cxc - cross_h // 2), (cxc, cxc + cross_h // 2), 2,
                 )
+                # V5.3 — barre de remplissage du cache à droite du nid
+                stock = cache_stock.get(nest.owner_id, 0)
+                if stock > 0 and cache_capacity > 0:
+                    fill_frac = min(1.0, stock / cache_capacity)
+                    bar_w = max(2, cell_px // 8)
+                    bar_h = int((cell_px - 4) * fill_frac)
+                    bar_x = cell_px - bar_w - 2
+                    bar_y = (cell_px - 2) - bar_h
+                    # Couleur verte saturée selon le remplissage
+                    pygame.draw.rect(
+                        nest_surf, (90, 220, 90, 230),
+                        pygame.Rect(bar_x, bar_y, bar_w, bar_h),
+                    )
                 screen.blit(nest_surf, (nx, ny))
                 # Build flash (anneau qui s'étend autour du nid)
                 if build_flash_frames.get(nest.owner_id, 0) > 0:

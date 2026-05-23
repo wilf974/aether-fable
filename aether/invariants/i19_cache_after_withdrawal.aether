@@ -1,0 +1,9 @@
+(@intent "AetherLife I19 — retrait cache ≥ 0 (jamais négatif)")
+(@example 50 10 40)
+(@example 5 10 0)
+(@example 0 10 0)
+(@example 100 0 100)
+(@invariant (>= result 0))
+(@invariant (<= result cache_before))
+(fn cache_after_withdrawal ((cache_before num) (withdrawal_amount num)) num
+  (max 0 (- cache_before withdrawal_amount)))

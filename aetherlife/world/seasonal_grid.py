@@ -19,11 +19,14 @@ from typing import Any
 import numpy as np
 
 from aetherlife.guardrails.invariants import (
+    cache_after_deposit,
+    cache_after_withdrawal,
     child_birth_tick,
     child_generation,
     clamp_pos,
     clamp_temp,
     energy_after_build,
+    energy_after_withdrawal,
     energy_no_food,
     energy_with_food,
     is_terminated,
@@ -32,6 +35,7 @@ from aetherlife.guardrails.invariants import (
     seasonal_lambda,
     step_reward,
 )
+from aetherlife.world.cache import CacheConfig
 from aetherlife.world.construction import BuildConfig, NestRecord
 from aetherlife.world.food_grid import Action, _DELTAS
 from aetherlife.world.multi_agent_grid import _AgentState
@@ -103,6 +107,7 @@ class SeasonalMultiAgentConfig:
     seasonal: SeasonalConfig = SeasonalConfig()
     reproduction: ReproductionConfig = ReproductionConfig()
     build: BuildConfig = BuildConfig()
+    cache: CacheConfig = CacheConfig()
 
     def __post_init__(self) -> None:
         if self.rows <= 0 or self.cols <= 0:
@@ -208,6 +213,12 @@ class SeasonalMultiAgentFoodGrid:
         self._rest_energy_gained_total: float = 0.0
         # V5.2 family metric
         self._family_nest_visits_total: int = 0
+        # V5.3 cache state
+        self._nest_food_stock: dict[int, float] = {}
+        self._cache_deposits_total: int = 0
+        self._cache_withdrawals_total: int = 0
+        self._cache_energy_deposited_total: float = 0.0
+        self._cache_energy_withdrawn_total: float = 0.0
 
     @property
     def n_actions(self) -> int:
@@ -296,6 +307,31 @@ class SeasonalMultiAgentFoodGrid:
     def family_nest_visits_total(self) -> int:
         return self._family_nest_visits_total
 
+    # V5.3 cache state
+    @property
+    def nest_food_stock(self) -> dict[int, float]:
+        return dict(self._nest_food_stock)
+
+    @property
+    def total_cached_food(self) -> float:
+        return sum(self._nest_food_stock.values())
+
+    @property
+    def cache_deposits_total(self) -> int:
+        return self._cache_deposits_total
+
+    @property
+    def cache_withdrawals_total(self) -> int:
+        return self._cache_withdrawals_total
+
+    @property
+    def cache_energy_deposited_total(self) -> float:
+        return self._cache_energy_deposited_total
+
+    @property
+    def cache_energy_withdrawn_total(self) -> float:
+        return self._cache_energy_withdrawn_total
+
     def root_ancestor_of(self, agent_id: int) -> int:
         return self.agent_state(agent_id).root_ancestor_id
 
@@ -306,6 +342,24 @@ class SeasonalMultiAgentFoodGrid:
         return any(
             a.alive and a.root_ancestor_id == root_id for a in self._agents
         )
+
+    def _accessible_nest_owner(self, agent: _AgentState) -> int | None:
+        """V5.3 — owner_id du nid accessible sur la cellule de l'agent."""
+        own_nest = self._nests.get(agent.agent_id)
+        if own_nest is not None and own_nest.pos == agent.pos:
+            return agent.agent_id
+        if not self.cfg.build.family_inheritance:
+            return None
+        for nest in self._nests.values():
+            if nest.pos != agent.pos:
+                continue
+            try:
+                owner_root = self.agent_state(nest.owner_id).root_ancestor_id
+            except KeyError:
+                owner_root = nest.owner_id
+            if owner_root == agent.root_ancestor_id:
+                return nest.owner_id
+        return None
 
     def agent_state(self, agent_id: int) -> _AgentState:
         for a in self._agents:
@@ -347,6 +401,12 @@ class SeasonalMultiAgentFoodGrid:
         self._nest_visits_total = 0
         self._rest_energy_gained_total = 0.0
         self._family_nest_visits_total = 0
+        # V5.3 reset
+        self._nest_food_stock = {}
+        self._cache_deposits_total = 0
+        self._cache_withdrawals_total = 0
+        self._cache_energy_deposited_total = 0.0
+        self._cache_energy_withdrawn_total = 0.0
         self._initial_food_layout()
         self._refresh_temperature()
         return (
@@ -422,6 +482,45 @@ class SeasonalMultiAgentFoodGrid:
                     self._family_nest_visits_total += 1
                     self._rest_energy_gained_total += agent.energy - e_before
 
+                    # V5.3 — cache deposit / withdrawal (env saisonnier)
+                    if self.cfg.cache.enabled:
+                        nest_owner_id = self._accessible_nest_owner(agent)
+                        if nest_owner_id is not None:
+                            ccfg = self.cfg.cache
+                            current_cache = self._nest_food_stock.get(nest_owner_id, 0.0)
+                            if (
+                                agent.energy < ccfg.withdrawal_threshold
+                                and current_cache > 0
+                            ):
+                                effective = min(ccfg.withdrawal_amount, current_cache)
+                                new_cache = cache_after_withdrawal(current_cache, effective)
+                                actual_amount = current_cache - new_cache
+                                if actual_amount > 0:
+                                    new_energy = energy_after_withdrawal(
+                                        agent.energy, actual_amount, self.cfg.max_energy
+                                    )
+                                    energy_gained = new_energy - agent.energy
+                                    agent.energy = new_energy
+                                    self._nest_food_stock[nest_owner_id] = new_cache
+                                    self._cache_withdrawals_total += 1
+                                    self._cache_energy_withdrawn_total += energy_gained
+                            elif (
+                                agent.energy >= ccfg.deposit_threshold
+                                and current_cache < ccfg.max_capacity
+                            ):
+                                available = min(
+                                    ccfg.deposit_amount, agent.energy - 1.0
+                                )
+                                new_cache = cache_after_deposit(
+                                    current_cache, available, ccfg.max_capacity
+                                )
+                                actual_deposit = new_cache - current_cache
+                                if actual_deposit > 0:
+                                    agent.energy -= actual_deposit
+                                    self._nest_food_stock[nest_owner_id] = new_cache
+                                    self._cache_deposits_total += 1
+                                    self._cache_energy_deposited_total += actual_deposit
+
             r_val = step_reward(local_metabolism, self.cfg.food_value, ate)
             if is_terminated(agent.energy):
                 agent.alive = False
@@ -429,11 +528,15 @@ class SeasonalMultiAgentFoodGrid:
                 terminated[agent.agent_id] = True
                 truncated[agent.agent_id] = False
                 if agent.agent_id in self._nests:
+                    should_remove = False
                     if self.cfg.build.family_inheritance:
                         if not self.has_living_descendant(agent.root_ancestor_id):
-                            del self._nests[agent.agent_id]
+                            should_remove = True
                     else:
+                        should_remove = True
+                    if should_remove:
                         del self._nests[agent.agent_id]
+                        self._nest_food_stock.pop(agent.agent_id, None)
             else:
                 terminated[agent.agent_id] = False
             rewards[agent.agent_id] = float(r_val)

@@ -1,0 +1,9 @@
+(@intent "AetherLife I18 — dépôt cache clampé à capacity")
+(@example 50 10 100 60)
+(@example 95 10 100 100)
+(@example 100 10 100 100)
+(@example 0 25 100 25)
+(@invariant (>= result cache_before))
+(@invariant (<= result max_capacity))
+(fn cache_after_deposit ((cache_before num) (deposit_amount num) (max_capacity num)) num
+  (min max_capacity (+ cache_before deposit_amount)))
