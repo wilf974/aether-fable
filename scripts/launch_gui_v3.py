@@ -157,7 +157,73 @@ MODE_GRID_DEFAULTS: dict[str, tuple[int, int, int, int]] = {
     "civ":     (28, 28, 22, 12),
     "tribe":   (32, 32, 20, 14),
     "prosper": (36, 36, 18, 14),
-    "garden":  (40, 40, 18, 12),   # vaste territoire à explorer
+    "garden":  (40, 40, 18, 10),   # vaste territoire, peu d'agents (focus individuel)
+}
+
+
+# V6.5 — Reproduction stricte par mode pour éviter les "lapins"
+# Format : (energy_threshold, energy_cost, cooldown_ticks, max_population)
+MODE_REPRO_DEFAULTS: dict[str, tuple[float, float, int, int]] = {
+    "easy":    (70.0, 35.0, 30, 60),
+    "normal":  (70.0, 35.0, 25, 50),
+    "hard":    (75.0, 40.0, 30, 40),
+    "evolve":  (80.0, 40.0, 35, 50),
+    "civ":     (100.0, 50.0, 60, 35),
+    "tribe":   (130.0, 65.0, 100, 30),
+    "prosper": (160.0, 80.0, 150, 22),
+    # garden : reproduction = événement RARE mais atteignable.
+    # threshold 130 : agent doit accumuler du surplus (pas la première récolte)
+    # cost 70 : reproduction coûte cher, ramène l'agent à env. 60 energy
+    # cooldown 250 : ~2-3 reproductions par vie maximum
+    # max_pop 16 : focus sur ~15 agents qu'on suit vraiment
+    "garden":  (130.0, 70.0, 250, 16),
+}
+
+
+# V6.5 — Cache deposit threshold par mode
+# Important : doit être > repro_threshold pour que la reproduction soit
+# prioritaire (sinon agent dépose tout son surplus dans le cache et ne
+# se reproduit jamais).
+MODE_CACHE_DEFAULTS: dict[str, tuple[float, float, float, float, float]] = {
+    # (deposit_threshold, withdrawal_threshold, max_capacity, dep_amt, wd_amt)
+    "easy":    (90.0, 50.0, 60.0, 4.0, 4.0),
+    "normal":  (90.0, 50.0, 60.0, 4.0, 4.0),
+    "hard":    (90.0, 50.0, 60.0, 4.0, 4.0),
+    "evolve":  (90.0, 50.0, 70.0, 4.0, 4.0),
+    "civ":     (110.0, 60.0, 80.0, 4.0, 4.0),
+    "tribe":   (140.0, 70.0, 80.0, 4.0, 4.0),
+    "prosper": (170.0, 80.0, 100.0, 4.0, 4.0),
+    # garden : deposit à 170 = AU-DESSUS de repro_threshold 130
+    "garden":  (170.0, 70.0, 100.0, 5.0, 5.0),
+}
+
+
+# V6.5 — Construction stricte par mode (rare en garden pour vrai investissement)
+MODE_BUILD_DEFAULTS: dict[str, tuple[float, float, int]] = {
+    # (energy_threshold, energy_cost, cooldown_ticks)
+    "easy":    (60.0, 20.0, 30),
+    "normal":  (65.0, 22.0, 30),
+    "hard":    (70.0, 25.0, 30),
+    "evolve":  (70.0, 25.0, 30),
+    "civ":     (80.0, 28.0, 40),
+    "tribe":   (90.0, 30.0, 50),
+    "prosper": (110.0, 35.0, 70),
+    "garden":  (130.0, 40.0, 100),   # build = vrai investissement
+}
+
+
+# V6.5 — Plantation stricte (planter = engagement, pas réflexe)
+MODE_PLANT_DEFAULTS: dict[str, tuple[float, float, int, int]] = {
+    # (energy_threshold, energy_cost, growth_ticks, cooldown_ticks)
+    "easy":    (70.0, 10.0, 40, 15),
+    "normal":  (70.0, 10.0, 40, 15),
+    "hard":    (75.0, 12.0, 50, 18),
+    "evolve":  (75.0, 12.0, 50, 18),
+    "civ":     (80.0, 12.0, 50, 20),
+    "tribe":   (85.0, 14.0, 60, 25),
+    "prosper": (100.0, 14.0, 70, 30),
+    # garden : plantation = engagement à 5-7 sec d'attente, cycle vraiment long
+    "garden":  (110.0, 15.0, 80, 40),
 }
 
 
@@ -200,20 +266,20 @@ def main() -> None:
         choices=["on", "off"],
         help="Force reproduction on/off (default: auto, on si --mode evolve)",
     )
-    # V6.3 — seuils encore plus accessibles + cooldowns courts pour activité visible
-    parser.add_argument("--repro-threshold", type=float, default=60.0)
-    parser.add_argument("--repro-cost", type=float, default=30.0)
-    parser.add_argument("--repro-cooldown", type=int, default=12)
-    parser.add_argument("--repro-max-pop", type=int, default=60)
+    # V6.5 — defaults par mode (None pour utiliser MODE_REPRO_DEFAULTS)
+    parser.add_argument("--repro-threshold", type=float, default=None)
+    parser.add_argument("--repro-cost", type=float, default=None)
+    parser.add_argument("--repro-cooldown", type=int, default=None)
+    parser.add_argument("--repro-max-pop", type=int, default=None)
     # V5 construction (activée seulement en mode 'civ' par défaut)
     parser.add_argument(
         "--build", type=str, default=None, choices=["on", "off"],
         help="Force construction on/off (default: on si --mode civ)",
     )
-    parser.add_argument("--build-threshold", type=float, default=55.0)
-    parser.add_argument("--build-cost", type=float, default=18.0)
+    parser.add_argument("--build-threshold", type=float, default=None)
+    parser.add_argument("--build-cost", type=float, default=None)
     parser.add_argument("--build-rest-bonus", type=float, default=4.0)
-    parser.add_argument("--build-cooldown", type=int, default=15)
+    parser.add_argument("--build-cooldown", type=int, default=None)
     parser.add_argument(
         "--family", type=lambda x: x.lower() == "on" if x else None,
         default=None,
@@ -223,22 +289,22 @@ def main() -> None:
         "--cache", type=str, default=None, choices=["on", "off"],
         help="Force cache on/off (default: on si --mode prosper)",
     )
-    parser.add_argument("--cache-deposit-threshold", type=float, default=80.0)
-    parser.add_argument("--cache-withdrawal-threshold", type=float, default=60.0)
-    parser.add_argument("--cache-capacity", type=float, default=80.0)
-    parser.add_argument("--cache-deposit-amount", type=float, default=4.0)
-    parser.add_argument("--cache-withdrawal-amount", type=float, default=4.0)
+    parser.add_argument("--cache-deposit-threshold", type=float, default=None)
+    parser.add_argument("--cache-withdrawal-threshold", type=float, default=None)
+    parser.add_argument("--cache-capacity", type=float, default=None)
+    parser.add_argument("--cache-deposit-amount", type=float, default=None)
+    parser.add_argument("--cache-withdrawal-amount", type=float, default=None)
     # V6 plantation (activée seulement en mode 'garden' par défaut)
-    # V6.3 — seuils accessibles + plus de graines initiales
+    # V6.5 — defaults par mode (None pour utiliser MODE_PLANT_DEFAULTS)
     parser.add_argument(
         "--planting", type=str, default=None, choices=["on", "off"],
         help="Force plantation on/off (default: on si --mode garden)",
     )
-    parser.add_argument("--plant-threshold", type=float, default=65.0)
-    parser.add_argument("--plant-cost", type=float, default=10.0)
-    parser.add_argument("--plant-growth-ticks", type=int, default=50)
-    parser.add_argument("--plant-cooldown", type=int, default=10)
-    parser.add_argument("--initial-seeds", type=int, default=3)
+    parser.add_argument("--plant-threshold", type=float, default=None)
+    parser.add_argument("--plant-cost", type=float, default=None)
+    parser.add_argument("--plant-growth-ticks", type=int, default=None)
+    parser.add_argument("--plant-cooldown", type=int, default=None)
+    parser.add_argument("--initial-seeds", type=int, default=2)
     args = parser.parse_args()
 
     # V6.4 — defaults grid adaptés au mode si pas override CLI
@@ -253,6 +319,58 @@ def main() -> None:
         args.cell_px = default_cell_px
     if args.n_agents is None:
         args.n_agents = default_n_agents
+
+    # V6.5 — defaults reproduction adaptés au mode
+    rep_th, rep_co, rep_cd, rep_mp = MODE_REPRO_DEFAULTS.get(
+        args.mode, (70.0, 35.0, 30, 50)
+    )
+    if args.repro_threshold is None:
+        args.repro_threshold = rep_th
+    if args.repro_cost is None:
+        args.repro_cost = rep_co
+    if args.repro_cooldown is None:
+        args.repro_cooldown = rep_cd
+    if args.repro_max_pop is None:
+        args.repro_max_pop = rep_mp
+
+    # V6.5 — defaults build
+    bld_th, bld_co, bld_cd = MODE_BUILD_DEFAULTS.get(
+        args.mode, (70.0, 25.0, 30)
+    )
+    if args.build_threshold is None:
+        args.build_threshold = bld_th
+    if args.build_cost is None:
+        args.build_cost = bld_co
+    if args.build_cooldown is None:
+        args.build_cooldown = bld_cd
+
+    # V6.5 — defaults plantation
+    pl_th, pl_co, pl_gr, pl_cd = MODE_PLANT_DEFAULTS.get(
+        args.mode, (75.0, 12.0, 50, 18)
+    )
+    if args.plant_threshold is None:
+        args.plant_threshold = pl_th
+    if args.plant_cost is None:
+        args.plant_cost = pl_co
+    if args.plant_growth_ticks is None:
+        args.plant_growth_ticks = pl_gr
+    if args.plant_cooldown is None:
+        args.plant_cooldown = pl_cd
+
+    # V6.5 — defaults cache (deposit_threshold > repro_threshold pour repro prio)
+    c_dep_th, c_wd_th, c_cap, c_dep_amt, c_wd_amt = MODE_CACHE_DEFAULTS.get(
+        args.mode, (90.0, 50.0, 80.0, 4.0, 4.0)
+    )
+    if args.cache_deposit_threshold is None:
+        args.cache_deposit_threshold = c_dep_th
+    if args.cache_withdrawal_threshold is None:
+        args.cache_withdrawal_threshold = c_wd_th
+    if args.cache_capacity is None:
+        args.cache_capacity = c_cap
+    if args.cache_deposit_amount is None:
+        args.cache_deposit_amount = c_dep_amt
+    if args.cache_withdrawal_amount is None:
+        args.cache_withdrawal_amount = c_wd_amt
 
     preset = MODE_PRESETS[args.mode]
 
