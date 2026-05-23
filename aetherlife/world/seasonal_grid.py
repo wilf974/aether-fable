@@ -206,6 +206,8 @@ class SeasonalMultiAgentFoodGrid:
         # V5 metrics
         self._nest_visits_total: int = 0
         self._rest_energy_gained_total: float = 0.0
+        # V5.2 family metric
+        self._family_nest_visits_total: int = 0
 
     @property
     def n_actions(self) -> int:
@@ -290,6 +292,21 @@ class SeasonalMultiAgentFoodGrid:
         """Somme cumulée de l'énergie regagnée via rest_bonus."""
         return self._rest_energy_gained_total
 
+    @property
+    def family_nest_visits_total(self) -> int:
+        return self._family_nest_visits_total
+
+    def root_ancestor_of(self, agent_id: int) -> int:
+        return self.agent_state(agent_id).root_ancestor_id
+
+    def lineage_ids(self, root_id: int) -> list[int]:
+        return [a.agent_id for a in self._agents if a.root_ancestor_id == root_id]
+
+    def has_living_descendant(self, root_id: int) -> bool:
+        return any(
+            a.alive and a.root_ancestor_id == root_id for a in self._agents
+        )
+
     def agent_state(self, agent_id: int) -> _AgentState:
         for a in self._agents:
             if a.agent_id == agent_id:
@@ -319,6 +336,9 @@ class SeasonalMultiAgentFoodGrid:
             )
             for i in range(self.cfg.n_agents)
         ]
+        # V5.2 — root_ancestor_id = own id pour les initiaux
+        for a in self._agents:
+            a.root_ancestor_id = a.agent_id
         self._next_agent_id = self.cfg.n_agents
         self._lineage = []
         self._births_last_step = []
@@ -326,6 +346,7 @@ class SeasonalMultiAgentFoodGrid:
         self._builds_last_step = []
         self._nest_visits_total = 0
         self._rest_energy_gained_total = 0.0
+        self._family_nest_visits_total = 0
         self._initial_food_layout()
         self._refresh_temperature()
         return (
@@ -375,19 +396,31 @@ class SeasonalMultiAgentFoodGrid:
                 agent.energy = energy_no_food(agent.energy, local_metabolism)
             ate_counts[agent.agent_id] = ate
 
-            # V5 — rest bonus si l'agent est sur son propre nid
-            own_nest = self._nests.get(agent.agent_id)
-            if (
-                self.cfg.build.enabled
-                and own_nest is not None
-                and own_nest.pos == agent.pos
-            ):
-                e_before = agent.energy
-                agent.energy = rest_energy_gain(
-                    agent.energy, self.cfg.build.rest_bonus, self.cfg.max_energy
-                )
-                self._nest_visits_total += 1
-                self._rest_energy_gained_total += agent.energy - e_before
+            # V5/V5.2 — rest bonus (propre nid OU nid familial)
+            if self.cfg.build.enabled:
+                rest_applied = False
+                own_nest = self._nests.get(agent.agent_id)
+                if own_nest is not None and own_nest.pos == agent.pos:
+                    rest_applied = True
+                elif self.cfg.build.family_inheritance:
+                    for nest in self._nests.values():
+                        if nest.pos != agent.pos:
+                            continue
+                        try:
+                            owner_root = self.agent_state(nest.owner_id).root_ancestor_id
+                        except KeyError:
+                            owner_root = nest.owner_id
+                        if owner_root == agent.root_ancestor_id:
+                            rest_applied = True
+                            break
+                if rest_applied:
+                    e_before = agent.energy
+                    agent.energy = rest_energy_gain(
+                        agent.energy, self.cfg.build.rest_bonus, self.cfg.max_energy
+                    )
+                    self._nest_visits_total += 1
+                    self._family_nest_visits_total += 1
+                    self._rest_energy_gained_total += agent.energy - e_before
 
             r_val = step_reward(local_metabolism, self.cfg.food_value, ate)
             if is_terminated(agent.energy):
@@ -396,7 +429,11 @@ class SeasonalMultiAgentFoodGrid:
                 terminated[agent.agent_id] = True
                 truncated[agent.agent_id] = False
                 if agent.agent_id in self._nests:
-                    del self._nests[agent.agent_id]
+                    if self.cfg.build.family_inheritance:
+                        if not self.has_living_descendant(agent.root_ancestor_id):
+                            del self._nests[agent.agent_id]
+                    else:
+                        del self._nests[agent.agent_id]
             else:
                 terminated[agent.agent_id] = False
             rewards[agent.agent_id] = float(r_val)
@@ -463,6 +500,7 @@ class SeasonalMultiAgentFoodGrid:
                 birth_tick=child_birth_tick(parent.birth_tick, self._step_count),
                 generation=child_generation(parent.generation),
                 last_repro_tick=-10**9,
+                root_ancestor_id=parent.root_ancestor_id,   # V5.2 héritage
             )
             parent.energy -= rcfg.energy_cost
             parent.last_repro_tick = self._step_count

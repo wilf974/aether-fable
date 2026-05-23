@@ -100,6 +100,8 @@ class _AgentState:
     last_repro_tick: int = -10**9   # permet la 1ère reproduction immédiate
     # V5 — construction
     last_build_tick: int = -10**9
+    # V5.2 — lineage root pour héritage familial (default = own id)
+    root_ancestor_id: int = -1
 
 
 class MultiAgentFoodGrid:
@@ -124,6 +126,8 @@ class MultiAgentFoodGrid:
         self._builds_last_step: list[NestRecord] = []
         self._nest_visits_total: int = 0
         self._rest_energy_gained_total: float = 0.0
+        # V5.2 — family inheritance metrics
+        self._family_nest_visits_total: int = 0
 
     @property
     def n_actions(self) -> int:
@@ -200,6 +204,28 @@ class MultiAgentFoodGrid:
         """Somme cumulée de l'énergie regagnée via rest_bonus."""
         return self._rest_energy_gained_total
 
+    @property
+    def family_nest_visits_total(self) -> int:
+        """V5.2 — ticks où un agent était sur un nid de sa lignée (incl. propre)."""
+        return self._family_nest_visits_total
+
+    # ─── V5.2 lineage helpers ──────────────────────────────────────────
+    def root_ancestor_of(self, agent_id: int) -> int:
+        """Retourne le root_ancestor_id d'un agent (par lookup direct)."""
+        return self.agent_state(agent_id).root_ancestor_id
+
+    def lineage_ids(self, root_id: int) -> list[int]:
+        """Tous les agent_ids (vivants + morts) appartenant à une lignée."""
+        return [
+            a.agent_id for a in self._agents if a.root_ancestor_id == root_id
+        ]
+
+    def has_living_descendant(self, root_id: int) -> bool:
+        """True s'il existe au moins un agent vivant dans cette lignée."""
+        return any(
+            a.alive and a.root_ancestor_id == root_id for a in self._agents
+        )
+
     def agent_state(self, agent_id: int) -> _AgentState:
         # V4 : agent_id n'est plus garanti = index. Lookup explicite.
         for a in self._agents:
@@ -225,6 +251,9 @@ class MultiAgentFoodGrid:
             )
             for i in range(self.cfg.n_agents)
         ]
+        # V5.2 — set root_ancestor_id = own id pour les initiaux
+        for a in self._agents:
+            a.root_ancestor_id = a.agent_id
         self._next_agent_id = self.cfg.n_agents
         self._lineage = []
         self._births_last_step = []
@@ -232,6 +261,7 @@ class MultiAgentFoodGrid:
         self._builds_last_step = []
         self._nest_visits_total = 0
         self._rest_energy_gained_total = 0.0
+        self._family_nest_visits_total = 0    # V5.2
         self._initial_food_layout()
         return (
             {a.agent_id: self._observation_for(a.agent_id) for a in self._agents},
@@ -276,19 +306,34 @@ class MultiAgentFoodGrid:
                 agent.energy = energy_no_food(agent.energy, self.cfg.metabolism)
             ate_counts[agent.agent_id] = ate
 
-            # V5 — rest bonus si l'agent est sur son propre nid
-            own_nest = self._nests.get(agent.agent_id)
-            if (
-                self.cfg.build.enabled
-                and own_nest is not None
-                and own_nest.pos == agent.pos
-            ):
-                e_before = agent.energy
-                agent.energy = rest_energy_gain(
-                    agent.energy, self.cfg.build.rest_bonus, self.cfg.max_energy
-                )
-                self._nest_visits_total += 1
-                self._rest_energy_gained_total += agent.energy - e_before
+            # V5 — rest bonus si l'agent est sur son propre nid (ou nid familial V5.2)
+            if self.cfg.build.enabled:
+                rest_applied = False
+                own_nest = self._nests.get(agent.agent_id)
+                if own_nest is not None and own_nest.pos == agent.pos:
+                    rest_applied = True
+                elif self.cfg.build.family_inheritance:
+                    # V5.2 — chercher un nid de la même lignée sur cette cellule
+                    for nest in self._nests.values():
+                        if nest.pos != agent.pos:
+                            continue
+                        try:
+                            owner_root = self.agent_state(nest.owner_id).root_ancestor_id
+                        except KeyError:
+                            # owner mort et déjà retiré → on stocke encore le nid par
+                            # root_id ; cas géré : nest_owner_root_id séparé (cf. ci-dessous)
+                            owner_root = nest.owner_id
+                        if owner_root == agent.root_ancestor_id:
+                            rest_applied = True
+                            break
+                if rest_applied:
+                    e_before = agent.energy
+                    agent.energy = rest_energy_gain(
+                        agent.energy, self.cfg.build.rest_bonus, self.cfg.max_energy
+                    )
+                    self._nest_visits_total += 1
+                    self._family_nest_visits_total += 1
+                    self._rest_energy_gained_total += agent.energy - e_before
 
             r = step_reward(self.cfg.metabolism, self.cfg.food_value, ate)
             if is_terminated(agent.energy):
@@ -296,9 +341,14 @@ class MultiAgentFoodGrid:
                 r -= self.cfg.death_penalty
                 terminated[agent.agent_id] = True
                 truncated[agent.agent_id] = False
-                # V5 — cleanup nid du défunt
+                # V5/V5.2 — cleanup nid du défunt
                 if agent.agent_id in self._nests:
-                    del self._nests[agent.agent_id]
+                    if self.cfg.build.family_inheritance:
+                        # V5.2 — conserver le nid si un descendant vit (same root)
+                        if not self.has_living_descendant(agent.root_ancestor_id):
+                            del self._nests[agent.agent_id]
+                    else:
+                        del self._nests[agent.agent_id]
             else:
                 terminated[agent.agent_id] = False
             rewards[agent.agent_id] = float(r)
@@ -378,6 +428,7 @@ class MultiAgentFoodGrid:
                 birth_tick=child_birth_tick(parent.birth_tick, self._step_count),
                 generation=child_generation(parent.generation),
                 last_repro_tick=-10**9,
+                root_ancestor_id=parent.root_ancestor_id,   # V5.2 héritage
             )
             parent.energy -= rcfg.energy_cost
             parent.last_repro_tick = self._step_count

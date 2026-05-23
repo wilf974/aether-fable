@@ -23,6 +23,10 @@ class BuildConfig:
         build_cost: énergie consommée pour la construction.
         rest_bonus: énergie regagnée à chaque tick passé sur son propre nid.
         cooldown_ticks: minimum de ticks entre 2 tentatives de construction.
+        family_inheritance (V5.2): si True, le rest_bonus s'applique à tout
+            agent de la même lignée (même `root_ancestor_id`), et le nid
+            persiste tant qu'au moins un descendant vit. Sinon (V5.0), seul
+            l'owner direct profite du rest et le nid disparaît à sa mort.
     """
 
     enabled: bool = False
@@ -30,6 +34,7 @@ class BuildConfig:
     build_cost: float = 25.0
     rest_bonus: float = 3.0
     cooldown_ticks: int = 50
+    family_inheritance: bool = False    # V5.2
 
     def __post_init__(self) -> None:
         if self.energy_threshold <= 0:
