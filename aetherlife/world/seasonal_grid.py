@@ -488,6 +488,16 @@ class SeasonalMultiAgentFoodGrid:
         infos: dict[int, dict[str, Any]] = {}
         ate_counts: dict[int, bool] = {}
 
+        # V6.3 — step_count incrémenté en début + construction/plantation
+        # AVANT le mouvement (sur position courante). L'agent peut donc agir
+        # sur sa cellule actuelle avant de bouger.
+        self._step_count += 1
+        self._builds_last_step = []
+        if self.cfg.build.enabled:
+            self._try_constructions()
+        if self.cfg.planting.enabled:
+            self._try_plantings()
+
         for agent in self._agents:
             if not agent.alive or agent.agent_id not in actions:
                 continue
@@ -603,24 +613,18 @@ class SeasonalMultiAgentFoodGrid:
                 terminated[agent.agent_id] = False
             rewards[agent.agent_id] = float(r_val)
 
-        self._step_count += 1
         for agent_id in actions:
             if agent_id in terminated and not terminated[agent_id]:
                 truncated[agent_id] = self._step_count >= self.cfg.max_steps
 
-        # V4 — reproduction automatique (saisonnier)
+        # V4 — reproduction automatique (saisonnier, après mouvement car requiert
+        # cellule adjacente libre)
         self._births_last_step = []
         if self.cfg.reproduction.enabled:
             self._try_reproductions()
 
-        # V5 — construction automatique
-        self._builds_last_step = []
-        if self.cfg.build.enabled:
-            self._try_constructions()
-
-        # V6 — plantation automatique + croissance
+        # V6 — croissance des plantes
         if self.cfg.planting.enabled:
-            self._try_plantings()
             self._update_plant_growth()
 
         # Refresh temperature pour le tick courant

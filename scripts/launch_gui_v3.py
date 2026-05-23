@@ -185,20 +185,20 @@ def main() -> None:
         choices=["on", "off"],
         help="Force reproduction on/off (default: auto, on si --mode evolve)",
     )
-    # V5.6 — seuils plus accessibles pour comportements visibles
-    parser.add_argument("--repro-threshold", type=float, default=70.0)
-    parser.add_argument("--repro-cost", type=float, default=35.0)
-    parser.add_argument("--repro-cooldown", type=int, default=20)
+    # V6.3 — seuils encore plus accessibles + cooldowns courts pour activité visible
+    parser.add_argument("--repro-threshold", type=float, default=60.0)
+    parser.add_argument("--repro-cost", type=float, default=30.0)
+    parser.add_argument("--repro-cooldown", type=int, default=12)
     parser.add_argument("--repro-max-pop", type=int, default=60)
     # V5 construction (activée seulement en mode 'civ' par défaut)
     parser.add_argument(
         "--build", type=str, default=None, choices=["on", "off"],
         help="Force construction on/off (default: on si --mode civ)",
     )
-    parser.add_argument("--build-threshold", type=float, default=70.0)
-    parser.add_argument("--build-cost", type=float, default=20.0)
+    parser.add_argument("--build-threshold", type=float, default=55.0)
+    parser.add_argument("--build-cost", type=float, default=18.0)
     parser.add_argument("--build-rest-bonus", type=float, default=4.0)
-    parser.add_argument("--build-cooldown", type=int, default=30)
+    parser.add_argument("--build-cooldown", type=int, default=15)
     parser.add_argument(
         "--family", type=lambda x: x.lower() == "on" if x else None,
         default=None,
@@ -214,15 +214,16 @@ def main() -> None:
     parser.add_argument("--cache-deposit-amount", type=float, default=4.0)
     parser.add_argument("--cache-withdrawal-amount", type=float, default=4.0)
     # V6 plantation (activée seulement en mode 'garden' par défaut)
-    # V6.1 — seuils plus accessibles, croissance plus rapide
+    # V6.3 — seuils accessibles + plus de graines initiales
     parser.add_argument(
         "--planting", type=str, default=None, choices=["on", "off"],
         help="Force plantation on/off (default: on si --mode garden)",
     )
-    parser.add_argument("--plant-threshold", type=float, default=80.0)
+    parser.add_argument("--plant-threshold", type=float, default=65.0)
     parser.add_argument("--plant-cost", type=float, default=10.0)
-    parser.add_argument("--plant-growth-ticks", type=int, default=30)
-    parser.add_argument("--plant-cooldown", type=int, default=18)
+    parser.add_argument("--plant-growth-ticks", type=int, default=50)
+    parser.add_argument("--plant-cooldown", type=int, default=10)
+    parser.add_argument("--initial-seeds", type=int, default=3)
     args = parser.parse_args()
 
     preset = MODE_PRESETS[args.mode]
@@ -304,6 +305,9 @@ def main() -> None:
         energy_cost=args.plant_cost,
         growth_ticks=args.plant_growth_ticks,
         cooldown_ticks=args.plant_cooldown,
+        seeds_required=1,
+        seeds_per_food_eaten=1,
+        initial_seeds=args.initial_seeds,
     )
 
     cfg = SeasonalMultiAgentConfig(

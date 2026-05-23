@@ -351,6 +351,12 @@ class MultiAgentFoodGrid:
         infos: dict[int, dict[str, Any]] = {}
         ate_counts: dict[int, bool] = {}
 
+        # V6.3 — step_count incrémenté en début + construction AVANT mouvement
+        self._step_count += 1
+        self._builds_last_step = []
+        if self.cfg.build.enabled:
+            self._try_constructions()
+
         for agent in self._agents:
             if not agent.alive:
                 continue
@@ -468,7 +474,6 @@ class MultiAgentFoodGrid:
                 terminated[agent.agent_id] = False
             rewards[agent.agent_id] = float(r)
 
-        self._step_count += 1
         # truncation pour ceux qui n'ont pas été terminés
         for agent_id in actions:
             if agent_id in terminated and not terminated[agent_id]:
@@ -480,10 +485,8 @@ class MultiAgentFoodGrid:
         if self.cfg.reproduction.enabled:
             self._try_reproductions()
 
-        # V5 — construction automatique
-        self._builds_last_step = []
-        if self.cfg.build.enabled:
-            self._try_constructions()
+        # V5 — construction déplacée AVANT le mouvement (V6.3)
+        # (no-op ici, gardé pour clarté)
 
         self._respawn_food()
 

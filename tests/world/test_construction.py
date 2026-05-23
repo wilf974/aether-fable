@@ -216,13 +216,18 @@ def test_nest_positions_set() -> None:
     )
     env = MultiAgentFoodGrid(cfg)
     env.reset(seed=0)
+    # V6.3 : capture positions avant step (construction est faite avant move)
+    start_positions = {
+        a.agent_id: a.pos for a in env._agents if a.alive  # noqa: SLF001
+    }
     env.step({0: 0, 1: 0, 2: 0})
     # Au moins 1 nid construit, max n_agents, positions uniques (pas de collision)
     assert 1 <= env.n_nests <= 3
     assert len(env.nest_positions) == env.n_nests  # toutes positions uniques
-    # Chaque nest correspond à la position de son owner
+    # V6.3 : le nid est sur la position de départ de l'owner (avant son
+    # mouvement du même tick, pas sa position finale)
     for nest in env.nests.values():
-        assert nest.pos == env.agent_state(nest.owner_id).pos
+        assert nest.pos == start_positions[nest.owner_id]
 
 
 # ─── Seasonal V5 ──────────────────────────────────────────────────────────

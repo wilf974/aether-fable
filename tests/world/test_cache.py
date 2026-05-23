@@ -174,22 +174,27 @@ def test_cache_can_save_low_energy_agent() -> None:
 
 def test_no_deposit_below_threshold() -> None:
     env = _make_cache_env(start_energy=180.0)
-    env.step({0: 0})  # build
-    # Force énergie pile au seuil rest mais sous deposit
-    env._agents[0].energy = 100.0  # noqa: SLF001 — entre withdrawal_threshold (40) et deposit (120)
+    env.step({0: 0})  # build (V6.3 : peut aussi déposer immédiatement)
+    # V6.3 : reset cache + énergie en zone neutre pour tester le check seul
+    env._nest_food_stock[0] = 0.0  # noqa: SLF001
+    deposits_before = env.cache_deposits_total
+    env._agents[0].energy = 100.0  # noqa: SLF001 — zone neutre [40, 120)
     env.step({0: 0})
-    # Pas de dépôt ni retrait (zone neutre)
-    assert env.cache_deposits_total == 0 or env.total_cached_food == 0
+    # Pas de NOUVEAU dépôt en zone neutre
+    assert env.cache_deposits_total == deposits_before
+    assert env.total_cached_food == 0
 
 
 def test_no_withdrawal_when_cache_empty() -> None:
     env = _make_cache_env(start_energy=180.0)
-    env.step({0: 0})  # build
-    # Force énergie basse direct, cache vide
+    env.step({0: 0})  # build (V6.3 : peut aussi déposer immédiatement)
+    # V6.3 : force le cache à 0 et énergie basse pour tester le check seul
+    env._nest_food_stock[0] = 0.0  # noqa: SLF001
+    withdrawals_before = env.cache_withdrawals_total
     env._agents[0].energy = 20.0  # noqa: SLF001
-    e_before = env.agent_state(0).energy
     env.step({0: 0})
-    assert env.cache_withdrawals_total == 0
+    # Pas de NOUVEAU retrait quand cache vide
+    assert env.cache_withdrawals_total == withdrawals_before
     assert env.total_cached_food == 0
 
 
