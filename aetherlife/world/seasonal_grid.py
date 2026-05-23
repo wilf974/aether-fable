@@ -19,6 +19,8 @@ from typing import Any
 import numpy as np
 
 from aetherlife.guardrails.invariants import (
+    child_birth_tick,
+    child_generation,
     clamp_pos,
     clamp_temp,
     energy_no_food,
@@ -30,6 +32,7 @@ from aetherlife.guardrails.invariants import (
 )
 from aetherlife.world.food_grid import Action, _DELTAS
 from aetherlife.world.multi_agent_grid import _AgentState
+from aetherlife.world.reproduction import LineageEdge, ReproductionConfig
 
 
 class Season(IntEnum):
@@ -95,6 +98,7 @@ class SeasonalMultiAgentConfig:
     food_respawn_lambda: float = 1.0
     max_steps: int = 1000
     seasonal: SeasonalConfig = SeasonalConfig()
+    reproduction: ReproductionConfig = ReproductionConfig()
 
     def __post_init__(self) -> None:
         if self.rows <= 0 or self.cols <= 0:
@@ -188,6 +192,10 @@ class SeasonalMultiAgentFoodGrid:
         self._env_rng: np.random.Generator = np.random.default_rng()
         self._spawn_rng: np.random.Generator = np.random.default_rng()
         self._placement_rng: np.random.Generator = np.random.default_rng()
+        # V4 lineage tracking
+        self._lineage: list[LineageEdge] = []
+        self._next_agent_id: int = 0
+        self._births_last_step: list[int] = []
 
     @property
     def n_actions(self) -> int:
@@ -233,8 +241,23 @@ class SeasonalMultiAgentFoodGrid:
     def alive_agent_ids(self) -> list[int]:
         return [a.agent_id for a in self._agents if a.alive]
 
+    @property
+    def lineage(self) -> list[LineageEdge]:
+        return list(self._lineage)
+
+    @property
+    def births_last_step(self) -> list[int]:
+        return list(self._births_last_step)
+
+    @property
+    def n_births_total(self) -> int:
+        return len(self._lineage)
+
     def agent_state(self, agent_id: int) -> _AgentState:
-        return self._agents[agent_id]
+        for a in self._agents:
+            if a.agent_id == agent_id:
+                return a
+        raise KeyError(f"agent_id={agent_id} not found")
 
     def _refresh_temperature(self) -> None:
         self._temp_field = build_temperature_field(
@@ -253,10 +276,15 @@ class SeasonalMultiAgentFoodGrid:
         positions = self._sample_unique_positions(self.cfg.n_agents)
         self._agents = [
             _AgentState(
-                agent_id=i, pos=positions[i], energy=self.cfg.start_energy, alive=True
+                agent_id=i, pos=positions[i], energy=self.cfg.start_energy,
+                alive=True, parent_id=None, birth_tick=0, generation=0,
+                last_repro_tick=-10**9,
             )
             for i in range(self.cfg.n_agents)
         ]
+        self._next_agent_id = self.cfg.n_agents
+        self._lineage = []
+        self._births_last_step = []
         self._initial_food_layout()
         self._refresh_temperature()
         return (
@@ -321,6 +349,11 @@ class SeasonalMultiAgentFoodGrid:
             if agent_id in terminated and not terminated[agent_id]:
                 truncated[agent_id] = self._step_count >= self.cfg.max_steps
 
+        # V4 — reproduction automatique (saisonnier)
+        self._births_last_step = []
+        if self.cfg.reproduction.enabled:
+            self._try_reproductions()
+
         # Refresh temperature pour le tick courant
         self._refresh_temperature()
         # Food respawn modulé par la saison (I11)
@@ -342,6 +375,59 @@ class SeasonalMultiAgentFoodGrid:
                 "local_temp": float(self._temp_field[ar, ac]),
             }
         return obs_dict, rewards, terminated, truncated, infos
+
+    def _try_reproductions(self) -> None:
+        """V4 — reproduction auto pour env saisonnier (idem MultiAgentFoodGrid)."""
+        rcfg = self.cfg.reproduction
+        candidates = sorted(
+            (a for a in self._agents if a.alive), key=lambda a: a.agent_id
+        )
+        for parent in candidates:
+            if self.n_alive >= rcfg.max_population:
+                break
+            if parent.energy < rcfg.energy_threshold:
+                continue
+            if (self._step_count - parent.last_repro_tick) < rcfg.cooldown_ticks:
+                continue
+            adj = self._find_free_adjacent(parent.pos)
+            if adj is None:
+                continue
+            child = _AgentState(
+                agent_id=self._next_agent_id,
+                pos=adj,
+                energy=rcfg.energy_cost,
+                alive=True,
+                parent_id=parent.agent_id,
+                birth_tick=child_birth_tick(parent.birth_tick, self._step_count),
+                generation=child_generation(parent.generation),
+                last_repro_tick=-10**9,
+            )
+            parent.energy -= rcfg.energy_cost
+            parent.last_repro_tick = self._step_count
+            self._agents.append(child)
+            self._next_agent_id += 1
+            self._births_last_step.append(child.agent_id)
+            self._lineage.append(
+                LineageEdge(
+                    parent_id=parent.agent_id,
+                    child_id=child.agent_id,
+                    birth_tick=self._step_count,
+                    parent_generation=parent.generation,
+                    child_generation=child.generation,
+                )
+            )
+
+    def _find_free_adjacent(self, pos: tuple[int, int]) -> tuple[int, int] | None:
+        r, c = pos
+        agent_positions = {a.pos for a in self._agents if a.alive}
+        for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            nr, nc = r + dr, c + dc
+            if not (0 <= nr < self.cfg.rows and 0 <= nc < self.cfg.cols):
+                continue
+            if (nr, nc) in agent_positions:
+                continue
+            return (nr, nc)
+        return None
 
     def _sample_unique_positions(self, n: int) -> list[tuple[int, int]]:
         n_cells = self.cfg.rows * self.cfg.cols

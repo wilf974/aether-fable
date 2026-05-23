@@ -1,0 +1,8 @@
+(@intent "AetherLife I13 — birth_tick enfant ≥ birth_tick parent (lineage non-acyclique en temps)")
+(@example 0 10 10)
+(@example 5 100 100)
+(@example 50 60 60)
+(@invariant (>= result parent_birth_tick))
+(@invariant (= result current_tick))
+(fn child_birth_tick ((parent_birth_tick num) (current_tick num)) num
+  current_tick)

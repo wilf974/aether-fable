@@ -1,0 +1,9 @@
+(@intent "AetherLife I12 — generation enfant = generation parent + 1 (monotone strict)")
+(@example 0 1)
+(@example 1 2)
+(@example 5 6)
+(@example 10 11)
+(@invariant (= result (+ parent_gen 1)))
+(@invariant (> result parent_gen))
+(fn child_generation ((parent_gen num)) num
+  (+ parent_gen 1))

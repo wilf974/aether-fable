@@ -1,0 +1,9 @@
+(@intent "AetherLife I14 — population bornée : pop_after_birth = pop_before + n_births, ≤ max_pop")
+(@example 10 3 100 13)
+(@example 50 60 100 100)
+(@example 0 5 10 5)
+(@example 95 10 100 100)
+(@invariant (>= result pop_before))
+(@invariant (<= result max_pop))
+(fn pop_after_births ((pop_before num) (n_births num) (max_pop num)) num
+  (min max_pop (+ pop_before n_births)))

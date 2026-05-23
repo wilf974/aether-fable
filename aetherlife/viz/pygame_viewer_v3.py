@@ -31,12 +31,16 @@ from aetherlife.world.seasonal_grid import (
 )
 
 
-# ─── viz config (V3.8 — living sandbox) ────────────────────────────────────
+# ─── viz config (V3.8 — living sandbox + V4 evolution) ─────────────────────
 TRAIL_LEN = 14                  # nombre de positions précédentes affichées par agent
 EAT_FLASH_FRAMES = 10           # durée du flash quand un agent mange
 AGE_GRAY = (190, 190, 195)      # couleur de "vieillissement" (mix progressif)
 MAX_AGE_MIX = 0.45              # max 45 % gris quand l'agent atteint max_steps
 HALO_EXTRA = 5                  # rayon halo extra (proportionnel à l'énergie)
+BIRTH_FLASH_FRAMES = 20         # durée du flash bleu sur l'enfant à la naissance
+BIRTH_FLASH_COLOR = (120, 200, 255)
+POP_CURVE_SAMPLES = 200         # nb max de points dans la courbe population
+POP_CURVE_H = 40                # hauteur du mini-graph en pixels
 
 
 # ─── palette ───────────────────────────────────────────────────────────────
@@ -136,15 +140,19 @@ def run_gui_v3(
     report_lines: list[str] = []
     tracker = EpisodeStatsTracker(n_agents=env.cfg.n_agents, track_seasons=True)
     tracker.reset(env)
-    # --- V3.8 living sandbox state ---
+    # --- V3.8 living sandbox state + V4 evolution viz ---
     trails: dict[int, deque] = {
         a.agent_id: deque(maxlen=TRAIL_LEN) for a in env._agents  # noqa: SLF001
     }
     eat_flash_frames: dict[int, int] = {}
+    birth_flash_frames: dict[int, int] = {}     # V4 — flash bleu sur enfant
+    pop_curve: deque = deque(maxlen=POP_CURVE_SAMPLES)
+    pop_curve.append(env.n_alive)
     show_trails = True
 
     def reset_episode(new_seed: int | None = None) -> None:
         nonlocal obs_dict, tracker, showing_report, trails, eat_flash_frames
+        nonlocal birth_flash_frames, pop_curve
         s = new_seed if new_seed is not None else seed + episode_idx
         obs_dict, _ = env.reset(seed=s)
         tracker = EpisodeStatsTracker(n_agents=env.cfg.n_agents, track_seasons=True)
@@ -152,6 +160,9 @@ def run_gui_v3(
         showing_report = False
         trails = {a.agent_id: deque(maxlen=TRAIL_LEN) for a in env._agents}  # noqa: SLF001
         eat_flash_frames = {}
+        birth_flash_frames = {}
+        pop_curve = deque(maxlen=POP_CURVE_SAMPLES)
+        pop_curve.append(env.n_alive)
 
     def switch_density() -> None:
         nonlocal n_idx, env, policy, obs_dict, episode_idx, last_outcome
@@ -210,6 +221,12 @@ def run_gui_v3(
             for aid, info in infos.items():
                 if info.get("ate"):
                     eat_flash_frames[aid] = EAT_FLASH_FRAMES
+            # V4 — flash bleu sur les enfants nés ce tick
+            for child_id in env.births_last_step:
+                birth_flash_frames[child_id] = BIRTH_FLASH_FRAMES
+                trails.setdefault(child_id, deque(maxlen=TRAIL_LEN))
+            # V4 — sample pop curve
+            pop_curve.append(env.n_alive)
             obs_dict = {aid: o for aid, o in next_obs.items() if env.agent_state(aid).alive}
             if env.n_alive == 0 or env.step_count >= env.cfg.max_steps:
                 outcome = (
@@ -303,6 +320,20 @@ def run_gui_v3(
                 )
                 screen.blit(flash_surf, (cx - flash_r - 1, cy - flash_r - 1))
                 eat_flash_frames[a.agent_id] -= 1
+            # V4 — Birth flash bleu (l'enfant brille à sa naissance)
+            if birth_flash_frames.get(a.agent_id, 0) > 0:
+                bprogress = 1.0 - (birth_flash_frames[a.agent_id] / BIRTH_FLASH_FRAMES)
+                bflash_r = radius + int(3 + 14 * bprogress)
+                bflash_alpha = int(200 * (1 - bprogress))
+                bsurf = pygame.Surface(
+                    (bflash_r * 2 + 2, bflash_r * 2 + 2), pygame.SRCALPHA
+                )
+                pygame.draw.circle(
+                    bsurf, (*BIRTH_FLASH_COLOR, bflash_alpha),
+                    (bflash_r + 1, bflash_r + 1), bflash_r, 3,
+                )
+                screen.blit(bsurf, (cx - bflash_r - 1, cy - bflash_r - 1))
+                birth_flash_frames[a.agent_id] -= 1
             # Body
             pygame.draw.circle(screen, color, (cx, cy), radius)
             pygame.draw.circle(screen, (255, 255, 255), (cx, cy), radius, 1)
@@ -322,20 +353,22 @@ def run_gui_v3(
 
         season_name = SEASON_LABELS[int(env.season)]
         season_tint = SEASON_TINTS[env.season]
-        alive_rate = env.n_alive / env.cfg.n_agents
+        denom_pop = max(env.cfg.n_agents, 1)
+        alive_rate = env.n_alive / denom_pop
         outcome_color = HUD_RED if last_outcome == "ALL DEAD" else (
             HUD_GREEN if last_outcome.startswith("TRUNCATED") else HUD_DIM
         )
         period = env.cfg.seasonal.season_period
         step_in_season = env.step_count % period
         ticks_to_next = period // 4 - (step_in_season % (period // 4))
+        total_pop = len(env._agents)  # noqa: SLF001 — incl. dead
 
         line1 = (
             f"season={season_name:6s}  phase={env.phase:5.2f}  "
             f"next-in={ticks_to_next:3d}t  step={env.step_count:4d}/{env.cfg.max_steps}"
         )
         line2 = (
-            f"N={env.cfg.n_agents:3d}  alive={env.n_alive:3d} ({alive_rate:5.1%})  "
+            f"alive={env.n_alive:3d}/{total_pop:<3d}  births={env.n_births_total:3d}  "
             f"food={env.food_count:4d}  episode#{episode_idx}"
         )
         line3 = f"last: {last_outcome}"
@@ -356,6 +389,30 @@ def run_gui_v3(
         screen.blit(font_sm.render(line3, True, outcome_color), (12, hud_y0 + 50))
         screen.blit(font_sm.render(line5, True, HUD_DIM), (12, hud_y0 + 80))
         screen.blit(font_sm.render(controls, True, HUD_DIM), (12, hud_y0 + 110))
+
+        # V4 — courbe population mini-graph en haut à droite du grid
+        if len(pop_curve) > 1:
+            curve_w = min(180, width - 24)
+            curve_x0 = width - curve_w - 10
+            curve_y0 = 10
+            pts = list(pop_curve)
+            max_pop_observed = max(max(pts), env.cfg.n_agents)
+            # fond translucide
+            curve_bg = pygame.Surface((curve_w + 8, POP_CURVE_H + 8), pygame.SRCALPHA)
+            curve_bg.fill((10, 10, 14, 180))
+            pygame.draw.rect(curve_bg, (90, 200, 90), curve_bg.get_rect(), 1)
+            screen.blit(curve_bg, (curve_x0 - 4, curve_y0 - 4))
+            # points
+            for i in range(1, len(pts)):
+                x1 = curve_x0 + int((i - 1) * curve_w / (len(pts) - 1))
+                x2 = curve_x0 + int(i * curve_w / (len(pts) - 1))
+                y1 = curve_y0 + POP_CURVE_H - int(pts[i - 1] / max_pop_observed * POP_CURVE_H)
+                y2 = curve_y0 + POP_CURVE_H - int(pts[i] / max_pop_observed * POP_CURVE_H)
+                pygame.draw.line(screen, (90, 200, 90), (x1, y1), (x2, y2), 2)
+            label = font_sm.render(
+                f"pop {pts[-1]}/{max_pop_observed}", True, HUD_DIM
+            )
+            screen.blit(label, (curve_x0, curve_y0 + POP_CURVE_H + 2))
 
         if paused:
             screen.blit(font_lg.render("PAUSED", True, HUD_RED), (width - 90, hud_y0 + 8))

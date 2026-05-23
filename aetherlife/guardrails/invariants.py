@@ -105,3 +105,30 @@ def seasonal_lambda(base_lambda: float, season_factor: float) -> float:
     Invariants : result ≥ 0.
     """
     return max(0.0, base_lambda * season_factor)
+
+
+def child_generation(parent_gen: int) -> int:
+    """I12 — generation enfant = generation parent + 1.
+
+    Mirror de `aether/invariants/i12_child_generation.aether`.
+    Invariants : result = parent_gen + 1 (strict monotone).
+    """
+    return parent_gen + 1
+
+
+def child_birth_tick(parent_birth_tick: int, current_tick: int) -> int:
+    """I13 — birth_tick enfant = current_tick ≥ birth_tick parent.
+
+    Mirror de `aether/invariants/i13_child_birth_tick.aether`.
+    Garantit que le lineage est non-acyclique en temps.
+    """
+    return current_tick
+
+
+def pop_after_births(pop_before: int, n_births: int, max_pop: int) -> int:
+    """I14 — population bornée par max_pop après naissances.
+
+    Mirror de `aether/invariants/i14_pop_after_births.aether`.
+    Invariants : pop_before ≤ result ≤ max_pop.
+    """
+    return min(max_pop, pop_before + n_births)

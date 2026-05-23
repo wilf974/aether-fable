@@ -19,6 +19,9 @@ EXPECTED=(
     "i9_season_phase.aether"
     "i10_clamp_temp.aether"
     "i11_seasonal_lambda.aether"
+    "i12_child_generation.aether"
+    "i13_child_birth_tick.aether"
+    "i14_pop_after_births.aether"
 )
 
 missing=0

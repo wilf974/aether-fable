@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 
 from aetherlife.viz.pygame_viewer_v3 import run_gui_v3
+from aetherlife.world.reproduction import ReproductionConfig
 from aetherlife.world.seasonal_grid import SeasonalConfig, SeasonalMultiAgentConfig
 
 
@@ -63,6 +64,21 @@ MODE_PRESETS: dict[str, dict] = {
         autumn_factor=1.0,
         max_steps=500,
     ),
+    # V4 — mode evolutionary : reproduction activée, env modérément doux
+    "evolve": dict(
+        metabolism=0.4,
+        food_value=15.0,
+        start_energy=100.0,
+        max_energy=150.0,
+        death_penalty=5.0,
+        initial_food_density=0.12,
+        food_respawn_lambda=3.0,
+        winter_factor=0.6,
+        summer_factor=1.2,
+        spring_factor=1.8,
+        autumn_factor=1.3,
+        max_steps=3000,
+    ),
 }
 
 
@@ -98,6 +114,16 @@ def main() -> None:
     parser.add_argument("--winter-factor", type=float, default=None)
     parser.add_argument("--temp-min", type=float, default=-10.0)
     parser.add_argument("--temp-max", type=float, default=30.0)
+    # V4 reproduction (activée seulement en mode 'evolve' par défaut)
+    parser.add_argument(
+        "--reproduction", type=str, default=None,
+        choices=["on", "off"],
+        help="Force reproduction on/off (default: auto, on si --mode evolve)",
+    )
+    parser.add_argument("--repro-threshold", type=float, default=80.0)
+    parser.add_argument("--repro-cost", type=float, default=40.0)
+    parser.add_argument("--repro-cooldown", type=int, default=30)
+    parser.add_argument("--repro-max-pop", type=int, default=80)
     args = parser.parse_args()
 
     preset = MODE_PRESETS[args.mode]
@@ -117,6 +143,20 @@ def main() -> None:
         temp_min=args.temp_min,
         temp_max=args.temp_max,
     )
+    # Reproduction : auto-on en mode evolve, sinon off ; --reproduction force
+    if args.reproduction is None:
+        repro_enabled = args.mode == "evolve"
+    else:
+        repro_enabled = args.reproduction == "on"
+
+    repro = ReproductionConfig(
+        enabled=repro_enabled,
+        energy_threshold=args.repro_threshold,
+        energy_cost=args.repro_cost,
+        cooldown_ticks=args.repro_cooldown,
+        max_population=args.repro_max_pop,
+    )
+
     cfg = SeasonalMultiAgentConfig(
         rows=args.rows, cols=args.cols, n_agents=args.n_agents,
         max_energy=pick("max_energy"),
@@ -128,10 +168,11 @@ def main() -> None:
         food_respawn_lambda=pick("food_respawn_lambda"),
         max_steps=pick("max_steps"),
         seasonal=seasonal,
+        reproduction=repro,
     )
 
     print(
-        f"AetherLife V3.8 — mode={args.mode}  N={args.n_agents}  "
+        f"AetherLife V4 — mode={args.mode}  N={args.n_agents}  "
         f"grid={args.rows}x{args.cols}  period={args.season_period}\n"
         f"  metabolism={cfg.metabolism}  food_value={cfg.food_value}  "
         f"start_energy={cfg.start_energy}  max_steps={cfg.max_steps}\n"
@@ -139,6 +180,9 @@ def main() -> None:
         f"  season factors (sp/su/au/wi): "
         f"{seasonal.spring_lambda_factor}/{seasonal.summer_lambda_factor}/"
         f"{seasonal.autumn_lambda_factor}/{seasonal.winter_lambda_factor}\n"
+        f"  reproduction={repro.enabled}  threshold={repro.energy_threshold}  "
+        f"cost={repro.energy_cost}  cooldown={repro.cooldown_ticks}t  "
+        f"max_pop={repro.max_population}\n"
     )
 
     run_gui_v3(cfg, cell_px=args.cell_px, tick_delay_ms=args.tick_delay_ms, seed=args.seed)

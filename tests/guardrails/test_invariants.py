@@ -5,12 +5,15 @@ import pytest
 
 from aetherlife.guardrails.exceptions import InvariantViolationError
 from aetherlife.guardrails.invariants import (
+    child_birth_tick,
+    child_generation,
     clamp_pos,
     clamp_temp,
     energy_gained,
     energy_no_food,
     energy_with_food,
     is_terminated,
+    pop_after_births,
     pop_after_deaths,
     season_phase,
     seasonal_lambda,
@@ -200,6 +203,49 @@ def test_i10_clamp_temp(temp: float, tmin: float, tmax: float, expected: float) 
 def test_i11_seasonal_lambda(base: float, factor: float, expected: float) -> None:
     """I11 — examples + cas négatif (clampé à 0)."""
     assert seasonal_lambda(base, factor) == expected
+
+
+@pytest.mark.parametrize("parent_gen,expected", [(0, 1), (1, 2), (5, 6), (10, 11)])
+def test_i12_child_generation(parent_gen: int, expected: int) -> None:
+    """I12 — examples strictement identiques à i12_child_generation.aether."""
+    assert child_generation(parent_gen) == expected
+
+
+def test_i12_invariants() -> None:
+    """I12 — result = parent_gen + 1 (monotone strict)."""
+    for g in range(0, 100):
+        r = child_generation(g)
+        assert r == g + 1
+        assert r > g
+
+
+@pytest.mark.parametrize(
+    "parent_birth,current,expected",
+    [(0, 10, 10), (5, 100, 100), (50, 60, 60)],
+)
+def test_i13_child_birth_tick(parent_birth: int, current: int, expected: int) -> None:
+    """I13 — examples strictement identiques à i13_child_birth_tick.aether."""
+    assert child_birth_tick(parent_birth, current) == expected
+
+
+@pytest.mark.parametrize(
+    "pop_before,n_births,max_pop,expected",
+    [(10, 3, 100, 13), (50, 60, 100, 100), (0, 5, 10, 5), (95, 10, 100, 100)],
+)
+def test_i14_pop_after_births(
+    pop_before: int, n_births: int, max_pop: int, expected: int
+) -> None:
+    """I14 — examples strictement identiques à i14_pop_after_births.aether."""
+    assert pop_after_births(pop_before, n_births, max_pop) == expected
+
+
+def test_i14_invariants() -> None:
+    """I14 — pop_before ≤ result ≤ max_pop."""
+    for pb in [0, 10, 50, 90]:
+        for nb in [0, 5, 50]:
+            for mp in [100, 200]:
+                r = pop_after_births(pb, nb, mp)
+                assert pb <= r <= mp
 
 
 def test_invariant_violation_error_format() -> None:
