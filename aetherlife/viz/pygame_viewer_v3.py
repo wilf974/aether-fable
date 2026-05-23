@@ -340,10 +340,11 @@ def run_gui_v3(
     font_md = pygame.font.SysFont("consolas", 14, bold=True)
     font_sm = pygame.font.SysFont("consolas", 12)
 
-    # V5.5 — choix policy par défaut : Smart si build/repro activés, sinon Random
+    # V5.5 — choix policy par défaut : Smart si build/repro/cache/plant activés
     default_smart = (
         base_cfg.build.enabled or base_cfg.reproduction.enabled
         or base_cfg.cache.enabled
+        or (hasattr(base_cfg, "planting") and base_cfg.planting.enabled)
     )
     policy_slots = [
         ("Smart", lambda e: _smart_policy_factory(e, seed=seed)),

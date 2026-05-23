@@ -243,9 +243,10 @@ def main() -> None:
         temp_min=args.temp_min,
         temp_max=args.temp_max,
     )
-    # Reproduction : auto-on en mode evolve OU civ, sinon off ; --reproduction force
+    # V6.3-fix2 — feature activation par mode (cumulatif)
+    # Reproduction : evolve, civ, tribe, prosper, garden
     if args.reproduction is None:
-        repro_enabled = args.mode in ("evolve", "civ")
+        repro_enabled = args.mode in ("evolve", "civ", "tribe", "prosper", "garden")
     else:
         repro_enabled = args.reproduction == "on"
 
@@ -257,21 +258,21 @@ def main() -> None:
         max_population=args.repro_max_pop,
     )
 
-    # V5 construction : auto-on en mode civ/tribe/prosper, sinon off
+    # V5 construction : auto-on en civ, tribe, prosper, garden
     if args.build is None:
-        build_enabled = args.mode in ("civ", "tribe", "prosper")
+        build_enabled = args.mode in ("civ", "tribe", "prosper", "garden")
     else:
         build_enabled = args.build == "on"
 
-    # V5.2 family inheritance : on automatiquement en mode tribe ou prosper
+    # V5.2 family inheritance : tribe, prosper, garden
     family_inheritance = (
         args.family if args.family is not None
-        else args.mode in ("tribe", "prosper")
+        else args.mode in ("tribe", "prosper", "garden")
     )
 
-    # V5.3 caches : auto-on en mode prosper uniquement
+    # V5.3 caches : prosper, garden
     if args.cache is None:
-        cache_enabled = args.mode == "prosper"
+        cache_enabled = args.mode in ("prosper", "garden")
     else:
         cache_enabled = args.cache == "on"
 
