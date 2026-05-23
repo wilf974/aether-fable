@@ -294,6 +294,20 @@ def _smart_policy_factory(env: SeasonalMultiAgentFoodGrid, seed: int = 0):
     return SmartHeuristicAgent(env, seed=seed)
 
 
+def _lineage_policy_factory(env: SeasonalMultiAgentFoodGrid, seed: int = 0):
+    """V8-B1 — politique RL DQN par lignée (héritage cognitif + sélection)."""
+    from aetherlife.agents.lineage_agent import LineageAgent
+    from aetherlife.agents.lineage_brain import BrainConfig
+    cfg = BrainConfig(
+        enabled=True, device="cpu", vision_radius=4,
+        hidden_dims=(64, 64), lr=5e-4, batch_size=64,
+        buffer_capacity=10_000, min_replay_to_learn=200, train_every=4,
+        epsilon_start=0.6, epsilon_end=0.05, epsilon_decay_steps=10_000,
+        target_sync_steps=300,
+    )
+    return LineageAgent(env=env, cfg=cfg, n_actions=4, seed=seed)
+
+
 def run_gui_v3(
     base_cfg: SeasonalMultiAgentConfig | None = None,
     *,
@@ -349,6 +363,7 @@ def run_gui_v3(
     )
     policy_slots = [
         ("Smart", lambda e: _smart_policy_factory(e, seed=seed)),
+        ("LineageDQN", lambda e: _lineage_policy_factory(e, seed=seed)),
         ("Random", lambda e: _random_policy_factory(e, seed=seed)),
     ]
     policy_idx = 0 if default_smart else 1
@@ -450,9 +465,53 @@ def run_gui_v3(
                     delay_ms = min(500, delay_ms + 15)
 
         if not paused and not showing_report and env.n_alive > 0 and env.step_count < env.cfg.max_steps:
-            actions = policy.act_dict(obs_dict, greedy=True)
+            # V8-B1 : si policy a un brain (LineageAgent), passer en greedy=False
+            # pour explorer + apprendre. Sinon, comportement déterministe.
+            is_learning = hasattr(policy, "registry") and hasattr(policy, "observe_dict")
+            # V8-B1 : capturer obs égocentriques + énergie avant step
+            ego_before: dict[int, np.ndarray] = {}
+            e_before: dict[int, float] = {}
+            if is_learning:
+                from aetherlife.agents.lineage_agent import egocentric_obs
+                for a in env._agents:  # noqa: SLF001
+                    if a.alive:
+                        ego_before[a.agent_id] = egocentric_obs(
+                            env, a, policy.cfg.vision_radius,
+                        )
+                        e_before[a.agent_id] = a.energy
+            actions = policy.act_dict(obs_dict, greedy=not is_learning)
             next_obs, rewards, terminated, truncated, infos = env.step(actions)
             tracker.on_step(env, infos)
+            # V8-B1 : observe les transitions pour entraîner les brains
+            if is_learning:
+                ego_after: dict[int, np.ndarray] = {}
+                v8_rewards: dict[int, float] = {}
+                v8_dones: dict[int, bool] = {}
+                v8_roots: dict[int, int] = {}
+                for a in env._agents:  # noqa: SLF001
+                    if a.agent_id not in e_before:
+                        continue
+                    v8_roots[a.agent_id] = a.root_ancestor_id
+                    if a.alive:
+                        ego_after[a.agent_id] = egocentric_obs(
+                            env, a, policy.cfg.vision_radius,
+                        )
+                        v8_rewards[a.agent_id] = (
+                            (a.energy - e_before[a.agent_id]) * 0.1
+                        )
+                        v8_dones[a.agent_id] = False
+                    else:
+                        ego_after[a.agent_id] = ego_before.get(
+                            a.agent_id,
+                            np.zeros(policy.obs_dim, dtype=np.float32),
+                        )
+                        v8_rewards[a.agent_id] = -5.0
+                        v8_dones[a.agent_id] = True
+                policy.observe_dict(
+                    prev_obs_ego=ego_before, actions=actions,
+                    rewards=v8_rewards, next_obs_ego=ego_after,
+                    dones=v8_dones, agent_root_ids=v8_roots,
+                )
             # V3.8 — trail update + eat flashes
             for a in env._agents:  # noqa: SLF001
                 if a.alive:
@@ -945,6 +1004,52 @@ def run_gui_v3(
                 screen.blit(font_sm.render("(no live agents)", True, HUD_DIM),
                             (legend_x0 + 4, ly))
                 ly += 14
+
+        # V8-B1 — panneau Cerveaux actifs (si LineageDQN actif)
+        if hasattr(policy, "registry"):
+            ly += 8
+            screen.blit(font_md.render("Brains V8-B1", True, HUD_FG),
+                        (legend_x0, ly))
+            ly += 18
+            registry = policy.registry
+            n_brains = len(registry)
+            total_steps = registry.total_global_steps()
+            screen.blit(
+                font_sm.render(f"actifs : {n_brains}", True, HUD_FG),
+                (legend_x0 + 4, ly),
+            )
+            ly += 14
+            screen.blit(
+                font_sm.render(f"steps cum : {total_steps:,}", True, HUD_DIM),
+                (legend_x0 + 4, ly),
+            )
+            ly += 14
+            # Top 3 cerveaux par global_step
+            sorted_brains = sorted(
+                registry, key=lambda b: -b.global_step
+            )[:3]
+            for brain in sorted_brains:
+                color = agent_color(brain.root_id)
+                pygame.draw.rect(
+                    screen, color,
+                    pygame.Rect(legend_x0 + 4, ly + 3, 8, 8),
+                )
+                label = (
+                    f"L{brain.root_id:2d} s={brain.global_step:>5d} "
+                    f"eps={brain.epsilon:.2f}"
+                )
+                screen.blit(
+                    font_sm.render(label, True, HUD_FG),
+                    (legend_x0 + 16, ly),
+                )
+                ly += 14
+                if brain.last_loss is not None:
+                    loss_str = f"     loss={brain.last_loss:.4f}"
+                    screen.blit(
+                        font_sm.render(loss_str, True, HUD_DIM),
+                        (legend_x0 + 16, ly),
+                    )
+                    ly += 12
 
         # ─── HUD bas ──────────────────────────────────────────────────────
         hud_y0 = env.cfg.rows * cell_px
