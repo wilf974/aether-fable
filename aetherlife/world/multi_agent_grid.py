@@ -122,6 +122,8 @@ class MultiAgentFoodGrid:
         # V5 — construction
         self._nests: dict[int, NestRecord] = {}      # owner_id → nid
         self._builds_last_step: list[NestRecord] = []
+        self._nest_visits_total: int = 0
+        self._rest_energy_gained_total: float = 0.0
 
     @property
     def n_actions(self) -> int:
@@ -188,6 +190,16 @@ class MultiAgentFoodGrid:
         """Set des cellules occupées par un nid."""
         return {n.pos for n in self._nests.values()}
 
+    @property
+    def nest_visits_total(self) -> int:
+        """Nombre cumulé de ticks où un agent est sur son propre nid."""
+        return self._nest_visits_total
+
+    @property
+    def rest_energy_gained_total(self) -> float:
+        """Somme cumulée de l'énergie regagnée via rest_bonus."""
+        return self._rest_energy_gained_total
+
     def agent_state(self, agent_id: int) -> _AgentState:
         # V4 : agent_id n'est plus garanti = index. Lookup explicite.
         for a in self._agents:
@@ -218,6 +230,8 @@ class MultiAgentFoodGrid:
         self._births_last_step = []
         self._nests = {}
         self._builds_last_step = []
+        self._nest_visits_total = 0
+        self._rest_energy_gained_total = 0.0
         self._initial_food_layout()
         return (
             {a.agent_id: self._observation_for(a.agent_id) for a in self._agents},
@@ -269,9 +283,12 @@ class MultiAgentFoodGrid:
                 and own_nest is not None
                 and own_nest.pos == agent.pos
             ):
+                e_before = agent.energy
                 agent.energy = rest_energy_gain(
                     agent.energy, self.cfg.build.rest_bonus, self.cfg.max_energy
                 )
+                self._nest_visits_total += 1
+                self._rest_energy_gained_total += agent.energy - e_before
 
             r = step_reward(self.cfg.metabolism, self.cfg.food_value, ate)
             if is_terminated(agent.energy):
