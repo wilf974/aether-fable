@@ -96,6 +96,168 @@ def text_color_for(bg: tuple[int, int, int]) -> tuple[int, int, int]:
     luminance = 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2]
     return (20, 20, 25) if luminance > 130 else (245, 245, 250)
 
+
+SKIN_TONES = [
+    (245, 215, 180),    # clair
+    (230, 195, 160),    # moyen clair
+    (210, 170, 135),    # moyen
+    (175, 135, 100),    # sombre
+    (140, 100, 75),     # très sombre
+]
+
+
+def skin_for(agent_id: int) -> tuple[int, int, int]:
+    """Choisit une teinte de peau parmi 5 selon l'agent_id (variation lignée)."""
+    return SKIN_TONES[agent_id % len(SKIN_TONES)]
+
+
+def draw_humanoid(
+    screen: pygame.Surface,
+    cx: int,
+    cy: int,
+    cell_px: int,
+    tunic_color: tuple[int, int, int],
+    agent_id: int,
+    *,
+    alive: bool,
+    energy_frac: float,
+    walk_phase: int,
+    font: pygame.font.Font,
+    eat_flash: bool = False,
+) -> None:
+    """Dessine un petit personnage humanoïde centré sur (cx, cy).
+
+    Composants : tête (peau), tunique (couleur agent), bras + jambes (foncés),
+    yeux, ID lisible sur la tunique. Animation de marche en alternance via
+    `walk_phase` (entier — pair/impair).
+    """
+    if not alive:
+        # Personnage gisant (gris terne + croix rouge)
+        body_w = max(8, int(cell_px * 0.7))
+        body_h = max(3, cell_px // 7)
+        rect_x = cx - body_w // 2
+        rect_y = cy + cell_px // 6
+        pygame.draw.rect(screen, (110, 80, 80),
+                         pygame.Rect(rect_x, rect_y, body_w, body_h))
+        pygame.draw.rect(screen, (50, 30, 30),
+                         pygame.Rect(rect_x, rect_y, body_w, body_h), 1)
+        # Tête couchée à gauche
+        head_r = max(3, body_h)
+        head_cx = rect_x - head_r // 2
+        head_cy = rect_y + body_h // 2
+        pygame.draw.circle(screen, (160, 120, 100), (head_cx, head_cy), head_r)
+        pygame.draw.circle(screen, (50, 30, 30), (head_cx, head_cy), head_r, 1)
+        # Croix rouge X au-dessus
+        cross_x = cx + body_w // 4
+        cross_y = rect_y - 4
+        pygame.draw.line(screen, (220, 60, 60),
+                         (cross_x - 3, cross_y - 3), (cross_x + 3, cross_y + 3), 2)
+        pygame.draw.line(screen, (220, 60, 60),
+                         (cross_x - 3, cross_y + 3), (cross_x + 3, cross_y - 3), 2)
+        return
+
+    skin = skin_for(agent_id)
+    outline = (35, 30, 25)
+    leg_color = (60, 50, 40)
+
+    # Proportions adaptatives à cell_px
+    head_r = max(3, cell_px // 7)
+    body_w = max(6, cell_px // 3)
+    body_h = max(7, cell_px // 3 + 2)
+    leg_len = max(3, cell_px // 5)
+
+    # Centre vertical : tête en haut, jambes en bas, corps centré
+    total_h = head_r * 2 + body_h + leg_len
+    top_y = cy - total_h // 2
+
+    head_cx = cx
+    head_cy = top_y + head_r
+    body_y_top = head_cy + head_r - 1
+    body_y_bot = body_y_top + body_h
+    feet_y = body_y_bot + leg_len
+
+    # Tête
+    pygame.draw.circle(screen, skin, (head_cx, head_cy), head_r)
+    pygame.draw.circle(screen, outline, (head_cx, head_cy), head_r, 1)
+    # Yeux (deux points noirs)
+    eye_r = max(1, head_r // 4)
+    eye_dx = max(1, head_r // 2)
+    eye_y_off = max(1, head_r // 5)
+    pygame.draw.circle(screen, (15, 15, 20),
+                       (head_cx - eye_dx, head_cy - eye_y_off), eye_r)
+    pygame.draw.circle(screen, (15, 15, 20),
+                       (head_cx + eye_dx, head_cy - eye_y_off), eye_r)
+    # Petit sourire si eat_flash
+    if eat_flash and head_r >= 4:
+        smile_y = head_cy + head_r // 3
+        pygame.draw.arc(
+            screen, (40, 25, 25),
+            pygame.Rect(head_cx - head_r // 2, smile_y - head_r // 3,
+                        head_r, head_r // 2),
+            3.5, 6.0, 2,
+        )
+
+    # Corps trapézoïdal (tunique colorée)
+    shoulder_w = max(4, body_w * 2 // 3)
+    waist_w = body_w
+    body_pts = [
+        (head_cx - shoulder_w // 2, body_y_top),
+        (head_cx + shoulder_w // 2, body_y_top),
+        (head_cx + waist_w // 2, body_y_bot),
+        (head_cx - waist_w // 2, body_y_bot),
+    ]
+    pygame.draw.polygon(screen, tunic_color, body_pts)
+    pygame.draw.polygon(screen, outline, body_pts, 1)
+
+    # Bras (alternance marche)
+    arm_swing = (walk_phase % 2) * 2 - 1  # -1 ou +1
+    arm_len = max(4, body_h * 3 // 4)
+    arm_color = (
+        max(0, tunic_color[0] - 30),
+        max(0, tunic_color[1] - 30),
+        max(0, tunic_color[2] - 30),
+    )
+    # Bras gauche
+    arm_l_start = (head_cx - shoulder_w // 2 + 1, body_y_top + 2)
+    arm_l_end = (head_cx - shoulder_w // 2 - 1 - arm_swing,
+                 body_y_top + arm_len + arm_swing * 2)
+    pygame.draw.line(screen, arm_color, arm_l_start, arm_l_end, 2)
+    pygame.draw.circle(screen, skin, arm_l_end, 1)
+    # Bras droit
+    arm_r_start = (head_cx + shoulder_w // 2 - 1, body_y_top + 2)
+    arm_r_end = (head_cx + shoulder_w // 2 + 1 + arm_swing,
+                 body_y_top + arm_len - arm_swing * 2)
+    pygame.draw.line(screen, arm_color, arm_r_start, arm_r_end, 2)
+    pygame.draw.circle(screen, skin, arm_r_end, 1)
+    # Mains levées si eat_flash
+    if eat_flash:
+        raised_l = (arm_l_start[0] - 1, body_y_top - 3)
+        raised_r = (arm_r_start[0] + 1, body_y_top - 3)
+        pygame.draw.line(screen, arm_color, arm_l_start, raised_l, 2)
+        pygame.draw.line(screen, arm_color, arm_r_start, raised_r, 2)
+        pygame.draw.circle(screen, skin, raised_l, 1)
+        pygame.draw.circle(screen, skin, raised_r, 1)
+
+    # Jambes (alternance marche)
+    leg_swing = arm_swing * 2
+    # Jambe gauche
+    pygame.draw.line(screen, leg_color,
+                     (head_cx - waist_w // 4, body_y_bot),
+                     (head_cx - waist_w // 4 - leg_swing, feet_y),
+                     2)
+    # Jambe droite
+    pygame.draw.line(screen, leg_color,
+                     (head_cx + waist_w // 4, body_y_bot),
+                     (head_cx + waist_w // 4 + leg_swing, feet_y),
+                     2)
+
+    # ID sur la tunique
+    if cell_px >= 22:
+        txt_color = text_color_for(tunic_color)
+        id_surf = font.render(str(agent_id), True, txt_color)
+        id_rect = id_surf.get_rect(center=(head_cx, (body_y_top + body_y_bot) // 2))
+        screen.blit(id_surf, id_rect)
+
 SEASON_LABELS = {0: "Spring", 1: "Summer", 2: "Autumn", 3: "Winter"}
 SEASON_TINTS = {
     Season.SPRING: (140, 220, 140),
@@ -521,53 +683,44 @@ def run_gui_v3(
                     )
                     screen.blit(surf, (tcx - tr_radius, tcy - tr_radius))
 
-        # V3.8 — draw agents with energy halo + age tint + eat flash
+        # V6.2 — draw agents as small humanoids
         max_steps_safe = max(env.cfg.max_steps, 1)
         age_frac = min(1.0, env.step_count / max_steps_safe)
+        walk_phase = env.step_count // 2  # rythme de marche
         for a in env._agents:  # noqa: SLF001
             ar, ac = a.pos
             cx = ac * cell_px + cell_px // 2
             cy = ar * cell_px + cell_px // 2
-            radius = max(2, cell_px // 2 - 2)
             if not a.alive:
-                pygame.draw.circle(screen, AGENT_DEAD, (cx, cy), radius)
-                pygame.draw.circle(screen, (50, 30, 30), (cx, cy), radius, 1)
-                # croix rouge sur les morts (plus lisible)
-                rr = max(2, radius - 1)
-                pygame.draw.line(
-                    screen, (200, 80, 80),
-                    (cx - rr, cy - rr), (cx + rr, cy + rr), 2,
-                )
-                pygame.draw.line(
-                    screen, (200, 80, 80),
-                    (cx - rr, cy + rr), (cx + rr, cy - rr), 2,
+                draw_humanoid(
+                    screen, cx, cy, cell_px, AGENT_DEAD,
+                    a.agent_id, alive=False, energy_frac=0,
+                    walk_phase=0, font=font_sm,
                 )
                 continue
             base_color = agent_color(a.agent_id)
-            # Age tint : mix vers gris à mesure que l'agent vieillit
+            # Age tint : mix vers gris
             mix = MAX_AGE_MIX * age_frac
             color = tuple(
                 int(base_color[i] * (1 - mix) + AGE_GRAY[i] * mix) for i in range(3)
             )
-            # Energy halo (couronne externe, alpha proportionnel à energy)
             e_frac = max(0.0, min(1.0, a.energy / env.cfg.max_energy))
-            halo_radius = radius + int(HALO_EXTRA * e_frac)
-            halo_alpha = int(40 + 80 * e_frac)
-            halo_surf = pygame.Surface(
-                (halo_radius * 2, halo_radius * 2), pygame.SRCALPHA
-            )
-            pygame.draw.circle(
-                halo_surf, (*color, halo_alpha),
-                (halo_radius, halo_radius), halo_radius,
-            )
-            screen.blit(halo_surf, (cx - halo_radius, cy - halo_radius))
+            # Halo d'énergie en arrière-plan
+            halo_r = max(cell_px // 3, int(cell_px // 2.5))
+            halo_alpha = int(40 + 90 * e_frac)
+            halo_surf = pygame.Surface((halo_r * 2, halo_r * 2), pygame.SRCALPHA)
+            pygame.draw.circle(halo_surf, (*color, halo_alpha),
+                               (halo_r, halo_r), halo_r)
+            screen.blit(halo_surf, (cx - halo_r, cy - halo_r))
             # Eat flash (anneau pulsant)
+            eat_active = False
             if eat_flash_frames.get(a.agent_id, 0) > 0:
+                eat_active = True
                 progress = 1.0 - (eat_flash_frames[a.agent_id] / EAT_FLASH_FRAMES)
-                flash_r = radius + int(2 + 12 * progress)
+                flash_r = halo_r + int(2 + 12 * progress)
                 flash_alpha = int(220 * (1 - progress))
                 flash_surf = pygame.Surface(
-                    (flash_r * 2 + 2, flash_r * 2 + 2), pygame.SRCALPHA
+                    (flash_r * 2 + 2, flash_r * 2 + 2), pygame.SRCALPHA,
                 )
                 pygame.draw.circle(
                     flash_surf, (255, 255, 200, flash_alpha),
@@ -575,13 +728,13 @@ def run_gui_v3(
                 )
                 screen.blit(flash_surf, (cx - flash_r - 1, cy - flash_r - 1))
                 eat_flash_frames[a.agent_id] -= 1
-            # V4 — Birth flash bleu (l'enfant brille à sa naissance)
+            # Birth flash (anneau bleu)
             if birth_flash_frames.get(a.agent_id, 0) > 0:
                 bprogress = 1.0 - (birth_flash_frames[a.agent_id] / BIRTH_FLASH_FRAMES)
-                bflash_r = radius + int(3 + 14 * bprogress)
+                bflash_r = halo_r + int(3 + 14 * bprogress)
                 bflash_alpha = int(200 * (1 - bprogress))
                 bsurf = pygame.Surface(
-                    (bflash_r * 2 + 2, bflash_r * 2 + 2), pygame.SRCALPHA
+                    (bflash_r * 2 + 2, bflash_r * 2 + 2), pygame.SRCALPHA,
                 )
                 pygame.draw.circle(
                     bsurf, (*BIRTH_FLASH_COLOR, bflash_alpha),
@@ -589,32 +742,25 @@ def run_gui_v3(
                 )
                 screen.blit(bsurf, (cx - bflash_r - 1, cy - bflash_r - 1))
                 birth_flash_frames[a.agent_id] -= 1
-            # Body
-            pygame.draw.circle(screen, color, (cx, cy), radius)
-            pygame.draw.circle(screen, (255, 255, 255), (cx, cy), radius, 1)
-            # Inner energy dot
-            inner_r = max(1, int(radius * e_frac * 0.7))
-            if inner_r >= 2:
-                inner_color = (
-                    min(255, color[0] + 30),
-                    min(255, color[1] + 30),
-                    min(255, color[2] + 30),
-                )
-                pygame.draw.circle(screen, inner_color, (cx, cy), inner_r)
-            # V5.5 — ID de l'agent affiché si cellule assez grande
-            if cell_px >= 20:
-                txt_color = text_color_for(color)
-                id_surf = font_md.render(str(a.agent_id), True, txt_color)
-                id_rect = id_surf.get_rect(center=(cx, cy))
-                screen.blit(id_surf, id_rect)
+
+            # === LE PETIT PERSONNAGE ===
+            draw_humanoid(
+                screen, cx, cy, cell_px, color, a.agent_id,
+                alive=True, energy_frac=e_frac,
+                walk_phase=walk_phase + a.agent_id,
+                font=font_md,
+                eat_flash=eat_active,
+            )
+
             # V6.1 — petits points verts au-dessus pour les graines
             seeds = getattr(a, "seeds", 0)
             if seeds > 0 and cell_px >= 20:
                 seed_dot_r = max(2, cell_px // 14)
                 spacing = seed_dot_r * 2 + 1
-                total_w = min(seeds, 5) * spacing
-                start_x = cx - total_w // 2
-                seed_y = cy - radius - seed_dot_r - 2
+                start_x = cx - min(seeds, 5) * spacing // 2
+                # Position : au-dessus de la tête du personnage
+                head_top_y = cy - cell_px // 2 + 2
+                seed_y = head_top_y - seed_dot_r - 1
                 for si in range(min(seeds, 5)):
                     pygame.draw.circle(
                         screen, (130, 220, 90),
@@ -683,19 +829,22 @@ def run_gui_v3(
         screen.blit(font_sm.render("silo cache (V5.3)", True, HUD_FG),
                     (legend_x0 + 18, ly + 1))
         ly += 22
-        # agent vivant
-        pygame.draw.circle(screen, agent_color(1), (legend_x0 + 12, ly + 6), 7)
-        pygame.draw.circle(screen, (255, 255, 255), (legend_x0 + 12, ly + 6), 7, 1)
+        # agent vivant (mini-personnage)
+        draw_humanoid(
+            screen, legend_x0 + 12, ly + 11, 22, agent_color(1),
+            1, alive=True, energy_frac=0.9, walk_phase=0, font=font_sm,
+        )
         screen.blit(font_sm.render("agent vivant", True, HUD_FG),
-                    (legend_x0 + 28, ly + 1))
-        ly += 22
+                    (legend_x0 + 28, ly + 5))
+        ly += 28
         # agent mort
-        pygame.draw.circle(screen, AGENT_DEAD, (legend_x0 + 12, ly + 6), 7)
-        pygame.draw.line(screen, (200, 80, 80),
-                         (legend_x0 + 6, ly), (legend_x0 + 18, ly + 12), 2)
+        draw_humanoid(
+            screen, legend_x0 + 12, ly + 11, 22, AGENT_DEAD,
+            2, alive=False, energy_frac=0, walk_phase=0, font=font_sm,
+        )
         screen.blit(font_sm.render("agent mort", True, HUD_FG),
-                    (legend_x0 + 28, ly + 1))
-        ly += 22
+                    (legend_x0 + 28, ly + 5))
+        ly += 28
         # birth flash
         pygame.draw.circle(screen, BIRTH_FLASH_COLOR, (legend_x0 + 12, ly + 6), 7, 2)
         screen.blit(font_sm.render("naissance (flash bleu)", True, HUD_FG),
