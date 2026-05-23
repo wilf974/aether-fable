@@ -357,11 +357,16 @@ class SeasonalMultiAgentFoodGrid:
         return self._plants_matured_total
 
     def can_plant_at(self, agent: _AgentState) -> bool:
-        """V6 — vérifie si l'agent peut planter à sa position actuelle."""
+        """V6 — vérifie si l'agent peut planter à sa position actuelle.
+
+        V6.1 — requiert aussi `seeds >= seeds_required`.
+        """
         pcfg = self.cfg.planting
         if not pcfg.enabled or not agent.alive:
             return False
         if agent.energy < pcfg.energy_threshold:
+            return False
+        if agent.seeds < pcfg.seeds_required:
             return False
         last = self._last_plant_tick.get(agent.agent_id, -10**9)
         if self._step_count - last < pcfg.cooldown_ticks:
@@ -434,8 +439,14 @@ class SeasonalMultiAgentFoodGrid:
             for i in range(self.cfg.n_agents)
         ]
         # V5.2 — root_ancestor_id = own id pour les initiaux
+        # V6.1 — initial seeds pour démarrer le cycle agricole
+        init_seeds = (
+            self.cfg.planting.initial_seeds
+            if self.cfg.planting.enabled else 0
+        )
         for a in self._agents:
             a.root_ancestor_id = a.agent_id
+            a.seeds = init_seeds
         self._next_agent_id = self.cfg.n_agents
         self._lineage = []
         self._births_last_step = []
@@ -500,6 +511,9 @@ class SeasonalMultiAgentFoodGrid:
                     agent.energy, local_metabolism,
                     self.cfg.food_value, self.cfg.max_energy,
                 )
+                # V6.1 — manger food → +seeds
+                if self.cfg.planting.enabled:
+                    agent.seeds += self.cfg.planting.seeds_per_food_eaten
             else:
                 agent.energy = energy_no_food(agent.energy, local_metabolism)
             ate_counts[agent.agent_id] = ate
@@ -674,12 +688,16 @@ class SeasonalMultiAgentFoodGrid:
             )
 
     def _try_plantings(self) -> None:
-        """V6 — chaque agent éligible plante une graine sur sa cellule."""
+        """V6 — chaque agent éligible plante une graine sur sa cellule.
+
+        V6.1 : consomme `seeds_required` graines de l'agent.
+        """
         pcfg = self.cfg.planting
         for agent in self._agents:
             if not self.can_plant_at(agent):
                 continue
             agent.energy -= pcfg.energy_cost
+            agent.seeds -= pcfg.seeds_required
             self._last_plant_tick[agent.agent_id] = self._step_count
             self._plants[agent.pos] = PlantRecord(
                 planter_id=agent.agent_id,

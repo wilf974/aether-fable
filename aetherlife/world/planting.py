@@ -25,12 +25,19 @@ from dataclasses import dataclass
 class PlantingConfig:
     """Configuration de la plantation V6.
 
+    V6.1 ajoute le système de **graines** : un agent doit avoir au moins
+    `seeds_required` graines (acquises en mangeant food) pour planter.
+    Cela force le cycle biologique : manger → graine → planter → récolter.
+
     Args:
-        enabled: si False (default), aucune plantation. Compat V5/V5.2/V5.3.
+        enabled: si False (default), aucune plantation. Compat V5.
         energy_threshold: minimum d'énergie pour pouvoir planter.
         energy_cost: énergie consommée par plantation.
         growth_ticks: nombre de ticks pour qu'une plante devienne food.
         cooldown_ticks: ticks min entre 2 plantations du même agent.
+        seeds_required: nombre de graines consommées par plantation (V6.1).
+        seeds_per_food_eaten: graines reçues quand l'agent mange food (V6.1).
+        initial_seeds: graines de chaque agent au reset (V6.1).
     """
 
     enabled: bool = False
@@ -38,6 +45,9 @@ class PlantingConfig:
     energy_cost: float = 12.0
     growth_ticks: int = 40
     cooldown_ticks: int = 25
+    seeds_required: int = 1
+    seeds_per_food_eaten: int = 1
+    initial_seeds: int = 1
 
     def __post_init__(self) -> None:
         if self.energy_threshold <= 0:
@@ -55,6 +65,14 @@ class PlantingConfig:
             raise ValueError(f"growth_ticks doit être > 0 (got {self.growth_ticks})")
         if self.cooldown_ticks < 0:
             raise ValueError(f"cooldown_ticks doit être >= 0 (got {self.cooldown_ticks})")
+        if self.seeds_required < 0:
+            raise ValueError(f"seeds_required doit être >= 0 (got {self.seeds_required})")
+        if self.seeds_per_food_eaten < 0:
+            raise ValueError(
+                f"seeds_per_food_eaten doit être >= 0 (got {self.seeds_per_food_eaten})"
+            )
+        if self.initial_seeds < 0:
+            raise ValueError(f"initial_seeds doit être >= 0 (got {self.initial_seeds})")
 
 
 @dataclass

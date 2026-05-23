@@ -109,21 +109,53 @@ class SmartHeuristicAgent:
                 self._prev_pos[aid] = (ar, ac)
                 continue
 
-            # V6 — Surplus + plantation possible : plante au lieu de chercher food
+            # V6.1 — Plantation intentionnelle avec système de graines.
+            # Logique de raisonnement :
+            #   - Pas de graine → impossible de planter, doit chasser food
+            #   - Graine + énergie suffisante + nid → plantation prioritaire
+            #     surtout si silo bas / hiver approche
             pcfg = getattr(env.cfg, "planting", None)
+            plants = getattr(env, "plants", {})
+            has_seed = agent.seeds >= (
+                pcfg.seeds_required if pcfg and pcfg.enabled else 1
+            )
             can_plant = (
                 pcfg is not None and pcfg.enabled
                 and energy >= pcfg.energy_threshold
+                and has_seed
             )
-            if can_plant and own_nest is not None:
-                # Si la cellule courante est plantable, idle (rester pour planter)
-                plants = getattr(env, "plants", {})
+            # Détection "silo bas" et "hiver approche" pour augmenter prio plant
+            cache_low = False
+            if pcfg and pcfg.enabled and own_nest is not None:
+                cache_stock = getattr(env, "nest_food_stock", {})
+                stock = cache_stock.get(own_nest.owner_id, 0)
+                cap = (
+                    env.cfg.cache.max_capacity
+                    if hasattr(env.cfg, "cache") and env.cfg.cache.enabled
+                    else 1.0
+                )
+                cache_low = (cap > 0) and (stock / cap < 0.4)
+            winter_imminent = False
+            if hasattr(env, "phase"):
+                phase = env.phase
+                # winter = phase ∈ [0.75, 1.0)
+                # imminent si phase ∈ [0.6, 0.75)
+                winter_imminent = 0.6 <= phase < 0.75
+            should_prioritize_plant = (
+                can_plant and (cache_low or winter_imminent or own_nest is not None)
+            )
+            if should_prioritize_plant:
                 if (
                     not env.food_mask[ar, ac]
                     and (ar, ac) not in plants
                     and (ar, ac) not in nest_pos_set
                 ):
                     actions[aid] = self._idle_action(ar, ac)
+                    self._prev_pos[aid] = (ar, ac)
+                    continue
+                tgt = self._nearest_plantable(ar, ac, env, plants, nest_pos_set)
+                if tgt is not None:
+                    actions[aid] = self._move_toward(ar, ac, *tgt)
                     self._prev_pos[aid] = (ar, ac)
                     continue
 
@@ -181,6 +213,31 @@ class SmartHeuristicAgent:
         if dc != 0:
             return int(Action.WEST) if dc < 0 else int(Action.EAST)
         return self._idle_action(ar, ac)
+
+    def _nearest_plantable(
+        self, ar: int, ac: int, env, plants: dict,
+        nest_pos_set: set[tuple[int, int]],
+        max_dist: int = 6,
+    ) -> tuple[int, int] | None:
+        """V6.1 — trouve la cellule plantable la plus proche (libre de food/nid/plant)."""
+        rows, cols = env.cfg.rows, env.cfg.cols
+        best = None
+        best_d = float("inf")
+        for r in range(max(0, ar - max_dist), min(rows, ar + max_dist + 1)):
+            for c in range(max(0, ac - max_dist), min(cols, ac + max_dist + 1)):
+                if env.food_mask[r, c]:
+                    continue
+                if (r, c) in plants:
+                    continue
+                if (r, c) in nest_pos_set:
+                    continue
+                d = abs(r - ar) + abs(c - ac)
+                if d == 0:
+                    continue
+                if d < best_d:
+                    best_d = d
+                    best = (r, c)
+        return best
 
     def _idle_action(self, ar: int, ac: int) -> int:
         """Action qui clamp et fait rester l'agent sur place (selon position)."""

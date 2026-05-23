@@ -129,18 +129,19 @@ MODE_PRESETS: dict[str, dict] = {
         max_steps=3000,
     ),
     # V6 — mode garden : prosper + plantation (système agricole complet)
+    # V6.1 — food spontanée RARE : survie = cultiver ou mourir
     "garden": dict(
         metabolism=0.4,
-        food_value=15.0,
-        start_energy=120.0,
-        max_energy=200.0,
+        food_value=18.0,                  # une plante mûre rapporte gros
+        start_energy=140.0,                # surplus initial pour démarrer la culture
+        max_energy=220.0,
         death_penalty=5.0,
-        initial_food_density=0.08,        # un peu moins de food naturel
-        food_respawn_lambda=1.5,           # pour incentiver la plantation
-        winter_factor=0.4,
-        summer_factor=1.2,
-        spring_factor=1.8,
-        autumn_factor=1.2,
+        initial_food_density=0.04,         # juste de quoi amorcer
+        food_respawn_lambda=0.15,          # quasi-zéro food gratuite
+        winter_factor=0.6,                 # cycle modeste (pas de famine extrême)
+        summer_factor=1.0,
+        spring_factor=1.4,
+        autumn_factor=0.8,
         max_steps=4000,
     ),
 }
@@ -213,14 +214,15 @@ def main() -> None:
     parser.add_argument("--cache-deposit-amount", type=float, default=4.0)
     parser.add_argument("--cache-withdrawal-amount", type=float, default=4.0)
     # V6 plantation (activée seulement en mode 'garden' par défaut)
+    # V6.1 — seuils plus accessibles, croissance plus rapide
     parser.add_argument(
         "--planting", type=str, default=None, choices=["on", "off"],
         help="Force plantation on/off (default: on si --mode garden)",
     )
-    parser.add_argument("--plant-threshold", type=float, default=100.0)
-    parser.add_argument("--plant-cost", type=float, default=12.0)
-    parser.add_argument("--plant-growth-ticks", type=int, default=40)
-    parser.add_argument("--plant-cooldown", type=int, default=25)
+    parser.add_argument("--plant-threshold", type=float, default=80.0)
+    parser.add_argument("--plant-cost", type=float, default=10.0)
+    parser.add_argument("--plant-growth-ticks", type=int, default=30)
+    parser.add_argument("--plant-cooldown", type=int, default=18)
     args = parser.parse_args()
 
     preset = MODE_PRESETS[args.mode]

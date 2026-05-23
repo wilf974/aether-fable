@@ -107,6 +107,8 @@ class _AgentState:
     last_build_tick: int = -10**9
     # V5.2 — lineage root pour héritage familial (default = own id)
     root_ancestor_id: int = -1
+    # V6.1 — graines accumulées en mangeant food, dépensées en plantant
+    seeds: int = 0
 
 
 class MultiAgentFoodGrid:

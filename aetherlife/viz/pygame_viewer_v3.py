@@ -607,6 +607,39 @@ def run_gui_v3(
                 id_surf = font_md.render(str(a.agent_id), True, txt_color)
                 id_rect = id_surf.get_rect(center=(cx, cy))
                 screen.blit(id_surf, id_rect)
+            # V6.1 — petits points verts au-dessus pour les graines
+            seeds = getattr(a, "seeds", 0)
+            if seeds > 0 and cell_px >= 20:
+                seed_dot_r = max(2, cell_px // 14)
+                spacing = seed_dot_r * 2 + 1
+                total_w = min(seeds, 5) * spacing
+                start_x = cx - total_w // 2
+                seed_y = cy - radius - seed_dot_r - 2
+                for si in range(min(seeds, 5)):
+                    pygame.draw.circle(
+                        screen, (130, 220, 90),
+                        (start_x + si * spacing, seed_y), seed_dot_r,
+                    )
+                if seeds > 5:
+                    extra_surf = font_sm.render(f"+{seeds-5}", True, (130, 220, 90))
+                    screen.blit(extra_surf,
+                                (start_x + 5 * spacing + 2, seed_y - 5))
+
+        # V6.1 — winter approach warning (clignote en automne tard)
+        if hasattr(env, "phase"):
+            phase = env.phase
+            if 0.6 <= phase < 0.75:
+                warn_alpha = 180 + int(60 * abs(np.sin(env.step_count * 0.3)))
+                warn_surf = pygame.Surface(
+                    (grid_w, 24), pygame.SRCALPHA,
+                )
+                warn_surf.fill((200, 100, 50, 70))
+                screen.blit(warn_surf, (0, 0))
+                warn_text = font_md.render(
+                    f"!! WINTER COMING (phase {phase:.2f})  STOCKEZ DES GRAINES !!",
+                    True, (255, 220, 150),
+                )
+                screen.blit(warn_text, (12, 4))
 
         # ─── Légende latérale (à droite de la grille) ────────────────────
         legend_x0 = grid_w + 12
@@ -726,10 +759,14 @@ def run_gui_v3(
         cache_total = getattr(env, "total_cached_food", 0.0)
         n_plants = getattr(env, "n_plants", 0)
         n_matured = getattr(env, "plants_matured_total", 0)
+        # V6.1 — total graines + indicateur winter approach
+        total_seeds = sum(
+            getattr(a, "seeds", 0) for a in env._agents if a.alive  # noqa: SLF001
+        )
         line2 = (
             f"alive={n_alive_disp:3d}/{total_pop:<3d}  births={env.n_births_total:3d}  "
             f"nests={n_nests:3d}  plants={n_plants:3d}(matured={n_matured:3d})  "
-            f"cache={cache_total:4.0f}  food={env.food_count:4d}"
+            f"seeds={total_seeds:3d}  cache={cache_total:4.0f}  food={env.food_count:4d}"
         )
         line3 = f"last: {last_outcome}"
         line4 = "Mean food regen factors per season:"
