@@ -452,3 +452,10 @@ class SeasonalMultiAgentFoodGrid:
     def obs_2d_shape(self) -> tuple[int, int, int]:
         """Shape (channels, rows, cols) attendue par ConvDQNAgent."""
         return (4, self.cfg.rows, self.cfg.cols)
+
+    def observation_2d_dict(self) -> dict[int, np.ndarray]:
+        """Retourne un dict {agent_id: obs_2d (4, R, C)} pour tous les agents vivants."""
+        return {
+            a.agent_id: self.observation_2d_for(a.agent_id)
+            for a in self._agents if a.alive
+        }
