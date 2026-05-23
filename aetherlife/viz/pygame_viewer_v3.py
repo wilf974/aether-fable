@@ -12,6 +12,7 @@ Contrôles :
 from __future__ import annotations
 
 import sys
+from collections import deque
 from typing import Callable
 
 import numpy as np
@@ -28,6 +29,14 @@ from aetherlife.world.seasonal_grid import (
     SeasonalMultiAgentConfig,
     SeasonalMultiAgentFoodGrid,
 )
+
+
+# ─── viz config (V3.8 — living sandbox) ────────────────────────────────────
+TRAIL_LEN = 14                  # nombre de positions précédentes affichées par agent
+EAT_FLASH_FRAMES = 10           # durée du flash quand un agent mange
+AGE_GRAY = (190, 190, 195)      # couleur de "vieillissement" (mix progressif)
+MAX_AGE_MIX = 0.45              # max 45 % gris quand l'agent atteint max_steps
+HALO_EXTRA = 5                  # rayon halo extra (proportionnel à l'énergie)
 
 
 # ─── palette ───────────────────────────────────────────────────────────────
@@ -127,14 +136,22 @@ def run_gui_v3(
     report_lines: list[str] = []
     tracker = EpisodeStatsTracker(n_agents=env.cfg.n_agents, track_seasons=True)
     tracker.reset(env)
+    # --- V3.8 living sandbox state ---
+    trails: dict[int, deque] = {
+        a.agent_id: deque(maxlen=TRAIL_LEN) for a in env._agents  # noqa: SLF001
+    }
+    eat_flash_frames: dict[int, int] = {}
+    show_trails = True
 
     def reset_episode(new_seed: int | None = None) -> None:
-        nonlocal obs_dict, tracker, showing_report
+        nonlocal obs_dict, tracker, showing_report, trails, eat_flash_frames
         s = new_seed if new_seed is not None else seed + episode_idx
         obs_dict, _ = env.reset(seed=s)
         tracker = EpisodeStatsTracker(n_agents=env.cfg.n_agents, track_seasons=True)
         tracker.reset(env)
         showing_report = False
+        trails = {a.agent_id: deque(maxlen=TRAIL_LEN) for a in env._agents}  # noqa: SLF001
+        eat_flash_frames = {}
 
     def switch_density() -> None:
         nonlocal n_idx, env, policy, obs_dict, episode_idx, last_outcome
@@ -175,6 +192,8 @@ def run_gui_v3(
                     switch_density()
                 elif event.key == pygame.K_t:
                     show_temp = not show_temp
+                elif event.key == pygame.K_l:
+                    show_trails = not show_trails
                 elif event.key == pygame.K_UP:
                     delay_ms = max(0, delay_ms - 15)
                 elif event.key == pygame.K_DOWN:
@@ -184,6 +203,13 @@ def run_gui_v3(
             actions = policy.act_dict(obs_dict, greedy=True)
             next_obs, rewards, terminated, truncated, infos = env.step(actions)
             tracker.on_step(env, infos)
+            # V3.8 — trail update + eat flashes
+            for a in env._agents:  # noqa: SLF001
+                if a.alive:
+                    trails.setdefault(a.agent_id, deque(maxlen=TRAIL_LEN)).append(a.pos)
+            for aid, info in infos.items():
+                if info.get("ate"):
+                    eat_flash_frames[aid] = EAT_FLASH_FRAMES
             obs_dict = {aid: o for aid, o in next_obs.items() if env.agent_state(aid).alive}
             if env.n_alive == 0 or env.step_count >= env.cfg.max_steps:
                 outcome = (
@@ -212,19 +238,83 @@ def run_gui_v3(
                 if cell_px >= 12:
                     pygame.draw.rect(screen, GRID_LINE, rect, 1)
 
+        # V3.8 — draw trails first (under agents)
+        if show_trails:
+            for aid, trail in trails.items():
+                base_color = AGENT_COLORS[aid % len(AGENT_COLORS)]
+                trail_list = list(trail)
+                trail_n = len(trail_list)
+                if trail_n <= 1:
+                    continue
+                for i, (tr, tc) in enumerate(trail_list[:-1]):
+                    # Plus i grand = plus récent = plus opaque
+                    alpha = int(180 * (i + 1) / trail_n)
+                    tcx = tc * cell_px + cell_px // 2
+                    tcy = tr * cell_px + cell_px // 2
+                    tr_radius = max(1, cell_px // 7)
+                    surf = pygame.Surface((tr_radius * 2, tr_radius * 2), pygame.SRCALPHA)
+                    pygame.draw.circle(
+                        surf, (*base_color, alpha),
+                        (tr_radius, tr_radius), tr_radius,
+                    )
+                    screen.blit(surf, (tcx - tr_radius, tcy - tr_radius))
+
+        # V3.8 — draw agents with energy halo + age tint + eat flash
+        max_steps_safe = max(env.cfg.max_steps, 1)
+        age_frac = min(1.0, env.step_count / max_steps_safe)
         for a in env._agents:  # noqa: SLF001
             ar, ac = a.pos
             cx = ac * cell_px + cell_px // 2
             cy = ar * cell_px + cell_px // 2
             radius = max(2, cell_px // 2 - 2)
-            color = AGENT_DEAD if not a.alive else AGENT_COLORS[a.agent_id % len(AGENT_COLORS)]
+            if not a.alive:
+                pygame.draw.circle(screen, AGENT_DEAD, (cx, cy), radius)
+                pygame.draw.circle(screen, (50, 30, 30), (cx, cy), radius, 1)
+                continue
+            base_color = AGENT_COLORS[a.agent_id % len(AGENT_COLORS)]
+            # Age tint : mix vers gris à mesure que l'agent vieillit
+            mix = MAX_AGE_MIX * age_frac
+            color = tuple(
+                int(base_color[i] * (1 - mix) + AGE_GRAY[i] * mix) for i in range(3)
+            )
+            # Energy halo (couronne externe, alpha proportionnel à energy)
+            e_frac = max(0.0, min(1.0, a.energy / env.cfg.max_energy))
+            halo_radius = radius + int(HALO_EXTRA * e_frac)
+            halo_alpha = int(40 + 80 * e_frac)
+            halo_surf = pygame.Surface(
+                (halo_radius * 2, halo_radius * 2), pygame.SRCALPHA
+            )
+            pygame.draw.circle(
+                halo_surf, (*color, halo_alpha),
+                (halo_radius, halo_radius), halo_radius,
+            )
+            screen.blit(halo_surf, (cx - halo_radius, cy - halo_radius))
+            # Eat flash (anneau pulsant)
+            if eat_flash_frames.get(a.agent_id, 0) > 0:
+                progress = 1.0 - (eat_flash_frames[a.agent_id] / EAT_FLASH_FRAMES)
+                flash_r = radius + int(2 + 12 * progress)
+                flash_alpha = int(220 * (1 - progress))
+                flash_surf = pygame.Surface(
+                    (flash_r * 2 + 2, flash_r * 2 + 2), pygame.SRCALPHA
+                )
+                pygame.draw.circle(
+                    flash_surf, (255, 255, 200, flash_alpha),
+                    (flash_r + 1, flash_r + 1), flash_r, 2,
+                )
+                screen.blit(flash_surf, (cx - flash_r - 1, cy - flash_r - 1))
+                eat_flash_frames[a.agent_id] -= 1
+            # Body
             pygame.draw.circle(screen, color, (cx, cy), radius)
-            if a.alive:
-                pygame.draw.circle(screen, (255, 255, 255), (cx, cy), radius, 1)
-                e_frac = max(0.0, a.energy / env.cfg.max_energy)
-                inner_r = max(1, int(radius * e_frac))
-                if inner_r > 1:
-                    pygame.draw.circle(screen, (255, 255, 255), (cx, cy), inner_r, 1)
+            pygame.draw.circle(screen, (255, 255, 255), (cx, cy), radius, 1)
+            # Inner energy dot
+            inner_r = max(1, int(radius * e_frac * 0.7))
+            if inner_r >= 2:
+                inner_color = (
+                    min(255, color[0] + 30),
+                    min(255, color[1] + 30),
+                    min(255, color[2] + 30),
+                )
+                pygame.draw.circle(screen, inner_color, (cx, cy), inner_r)
 
         # ─── HUD ───────────────────────────────────────────────────────────
         hud_y0 = env.cfg.rows * cell_px
@@ -257,7 +347,8 @@ def run_gui_v3(
             f"winter={env.cfg.seasonal.winter_lambda_factor:.2f}"
         )
         controls = (
-            "SPACE pause/next  R reset  N density  T heatmap  ↑/↓ speed  Q quit"
+            "SPACE pause/next  R reset  N density  T heatmap  L trails  "
+            "↑/↓ speed  Q quit"
         )
 
         screen.blit(font_lg.render(line1, True, season_tint), (12, hud_y0 + 8))
