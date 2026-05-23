@@ -147,21 +147,36 @@ MODE_PRESETS: dict[str, dict] = {
 }
 
 
+# V6.4 — defaults grid/cell_px par mode pour qu'on ait une vraie map d'exploration
+MODE_GRID_DEFAULTS: dict[str, tuple[int, int, int, int]] = {
+    # mode -> (rows, cols, cell_px, n_agents)
+    "easy":    (20, 20, 28, 8),
+    "normal":  (24, 24, 24, 12),
+    "hard":    (20, 20, 28, 16),
+    "evolve":  (24, 24, 24, 12),
+    "civ":     (28, 28, 22, 12),
+    "tribe":   (32, 32, 20, 14),
+    "prosper": (36, 36, 18, 14),
+    "garden":  (40, 40, 18, 12),   # vaste territoire à explorer
+}
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
         "--mode", type=str, default="easy", choices=list(MODE_PRESETS),
         help="Preset env (easy = agents survivent, hard = mortalite massive)",
     )
-    parser.add_argument("--rows", type=int, default=32)
-    parser.add_argument("--cols", type=int, default=32)
-    parser.add_argument("--n-agents", type=int, default=16)
+    # V6.4 — None pour utiliser le default du mode
+    parser.add_argument("--rows", type=int, default=None)
+    parser.add_argument("--cols", type=int, default=None)
+    parser.add_argument("--n-agents", type=int, default=None)
     parser.add_argument("--season-period", type=int, default=200)
     parser.add_argument(
-        "--cell-px", type=int, default=18,
-        help="Taille des cellules en pixels (defaut 18)",
+        "--cell-px", type=int, default=None,
+        help="Taille des cellules en pixels (defaut adaptatif par mode)",
     )
-    parser.add_argument("--tick-delay-ms", type=int, default=60)
+    parser.add_argument("--tick-delay-ms", type=int, default=100)
     parser.add_argument("--seed", type=int, default=0)
 
     # Overrides individuels (None = utiliser le preset)
@@ -225,6 +240,19 @@ def main() -> None:
     parser.add_argument("--plant-cooldown", type=int, default=10)
     parser.add_argument("--initial-seeds", type=int, default=3)
     args = parser.parse_args()
+
+    # V6.4 — defaults grid adaptés au mode si pas override CLI
+    default_rows, default_cols, default_cell_px, default_n_agents = MODE_GRID_DEFAULTS.get(
+        args.mode, (32, 32, 22, 12)
+    )
+    if args.rows is None:
+        args.rows = default_rows
+    if args.cols is None:
+        args.cols = default_cols
+    if args.cell_px is None:
+        args.cell_px = default_cell_px
+    if args.n_agents is None:
+        args.n_agents = default_n_agents
 
     preset = MODE_PRESETS[args.mode]
 

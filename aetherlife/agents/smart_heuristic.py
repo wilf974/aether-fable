@@ -100,10 +100,22 @@ class SmartHeuristicAgent:
                 actions[aid] = self._random_walk(aid, ar, ac)
                 continue
 
-            # 2. Surplus + pas de nid → construire (rester sur place libre)
+            # 2. Surplus + pas de nid PROPRE → construire (cherche cellule libre)
+            # V6.4 — au lieu de random walk quand sur food, va activement vers
+            # une cellule libre pour pouvoir construire au prochain tick.
             if energy >= build_threshold and own_nest is None:
-                if env.food_mask[ar, ac]:
-                    actions[aid] = self._random_walk(aid, ar, ac)
+                plants_dict = getattr(env, "plants", {})
+                pos_blocked = (
+                    env.food_mask[ar, ac]
+                    or (ar, ac) in nest_pos_set
+                )
+                if pos_blocked:
+                    # Chercher cellule libre proche (pas food, pas nest)
+                    tgt = self._nearest_buildable(ar, ac, env, nest_pos_set)
+                    if tgt is not None:
+                        actions[aid] = self._move_toward(ar, ac, *tgt)
+                    else:
+                        actions[aid] = self._random_walk(aid, ar, ac)
                 else:
                     actions[aid] = self._idle_action(ar, ac)
                 self._prev_pos[aid] = (ar, ac)
@@ -213,6 +225,29 @@ class SmartHeuristicAgent:
         if dc != 0:
             return int(Action.WEST) if dc < 0 else int(Action.EAST)
         return self._idle_action(ar, ac)
+
+    def _nearest_buildable(
+        self, ar: int, ac: int, env,
+        nest_pos_set: set[tuple[int, int]],
+        max_dist: int = 6,
+    ) -> tuple[int, int] | None:
+        """V6.4 — cellule la plus proche libre pour build (pas food, pas nid)."""
+        rows, cols = env.cfg.rows, env.cfg.cols
+        best = None
+        best_d = float("inf")
+        for r in range(max(0, ar - max_dist), min(rows, ar + max_dist + 1)):
+            for c in range(max(0, ac - max_dist), min(cols, ac + max_dist + 1)):
+                if env.food_mask[r, c]:
+                    continue
+                if (r, c) in nest_pos_set:
+                    continue
+                d = abs(r - ar) + abs(c - ac)
+                if d == 0:
+                    continue
+                if d < best_d:
+                    best_d = d
+                    best = (r, c)
+        return best
 
     def _nearest_plantable(
         self, ar: int, ac: int, env, plants: dict,
