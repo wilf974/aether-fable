@@ -307,6 +307,8 @@ def run_gui_v3(
     base_cfg = base_cfg or SeasonalMultiAgentConfig()
 
     def make_env(n_agents: int) -> SeasonalMultiAgentFoodGrid:
+        # V6.3-fix : propager TOUS les sous-configs (reproduction, build, cache,
+        # planting) — sinon le switch density perdait toutes les mécaniques V4+.
         cfg = SeasonalMultiAgentConfig(
             rows=base_cfg.rows, cols=base_cfg.cols, n_agents=n_agents,
             max_energy=base_cfg.max_energy, start_energy=base_cfg.start_energy,
@@ -316,6 +318,10 @@ def run_gui_v3(
             food_respawn_lambda=base_cfg.food_respawn_lambda,
             max_steps=base_cfg.max_steps,
             seasonal=base_cfg.seasonal,
+            reproduction=base_cfg.reproduction,
+            build=base_cfg.build,
+            cache=base_cfg.cache,
+            planting=base_cfg.planting,
         )
         return SeasonalMultiAgentFoodGrid(cfg)
 
