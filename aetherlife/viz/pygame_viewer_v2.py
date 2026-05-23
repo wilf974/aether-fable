@@ -18,6 +18,11 @@ from typing import Callable
 import numpy as np
 import pygame
 
+from aetherlife.metrics.episode_report import (
+    EpisodeStatsTracker,
+    format_report_lines,
+)
+from aetherlife.viz.report_overlay import render_report_overlay
 from aetherlife.world.multi_agent_grid import (
     MultiAgentFoodGrid,
     MultiAgentForagerConfig,
@@ -131,11 +136,18 @@ def run_gui_v2(
     episode_idx = 0
     last_outcome = "—"
     last_alive_final = 0
+    showing_report = False
+    report_lines: list[str] = []
+    tracker = EpisodeStatsTracker(n_agents=env.cfg.n_agents)
+    tracker.reset(env)
 
     def reset_episode(new_seed: int | None = None) -> None:
-        nonlocal obs_dict
+        nonlocal obs_dict, tracker, showing_report
         s = new_seed if new_seed is not None else seed + episode_idx
         obs_dict, _ = env.reset(seed=s)
+        tracker = EpisodeStatsTracker(n_agents=env.cfg.n_agents)
+        tracker.reset(env)
+        showing_report = False
 
     def switch_density(delta: int) -> None:
         nonlocal n_idx, env, policy, obs_dict, episode_idx, last_outcome
@@ -146,6 +158,14 @@ def run_gui_v2(
         reset_episode()
         last_outcome = "—"
 
+    def end_episode(outcome: str) -> None:
+        nonlocal last_outcome, showing_report, report_lines, episode_idx
+        last_outcome = outcome
+        report = tracker.finalize(env)
+        report_lines = format_report_lines(report)
+        showing_report = True
+        episode_idx += 1
+
     running = True
     while running:
         for event in pygame.event.get():
@@ -155,11 +175,15 @@ def run_gui_v2(
                 if event.key in (pygame.K_ESCAPE, pygame.K_q):
                     running = False
                 elif event.key == pygame.K_SPACE:
-                    paused = not paused
+                    if showing_report:
+                        reset_episode()
+                    else:
+                        paused = not paused
                 elif event.key == pygame.K_r:
-                    episode_idx += 1
+                    if not showing_report:
+                        episode_idx += 1
+                        last_outcome = "—"
                     reset_episode()
-                    last_outcome = "—"
                 elif event.key == pygame.K_a:
                     policy_idx = (policy_idx + 1) % len(policies)
                     policy = policies[policy_idx].factory(env)
@@ -173,20 +197,18 @@ def run_gui_v2(
                 elif event.key == pygame.K_DOWN:
                     delay_ms = min(500, delay_ms + 15)
 
-        if not paused and env.n_alive > 0 and env.step_count < env.cfg.max_steps:
+        if not paused and not showing_report and env.n_alive > 0 and env.step_count < env.cfg.max_steps:
             actions = policy.act_dict(obs_dict, greedy=True)
             next_obs, rewards, terminated, truncated, infos = env.step(actions)
+            tracker.on_step(env, infos)
             obs_dict = {aid: o for aid, o in next_obs.items() if env.agent_state(aid).alive}
             if env.n_alive == 0 or env.step_count >= env.cfg.max_steps:
-                last_outcome = (
+                outcome = (
                     "ALL DEAD" if env.n_alive == 0
                     else f"TRUNCATED ({env.n_alive}/{env.cfg.n_agents} alive)"
                 )
                 last_alive_final = env.n_alive
-                episode_idx += 1
-                # auto-restart après 30 frames de pause
-                pygame.time.wait(500)
-                reset_episode()
+                end_episode(outcome)
 
         # ─── render grid ───────────────────────────────────────────────────
         screen.fill(BG)
@@ -248,9 +270,12 @@ def run_gui_v2(
         if paused:
             screen.blit(font_lg.render("PAUSED", True, HUD_RED), (width - 90, hud_y0 + 12))
 
+        if showing_report:
+            render_report_overlay(screen, report_lines, font_lg, font_sm)
+
         pygame.display.flip()
         clock.tick(60)
-        if delay_ms > 0 and not paused:
+        if delay_ms > 0 and not paused and not showing_report:
             pygame.time.wait(delay_ms)
 
     pygame.quit()

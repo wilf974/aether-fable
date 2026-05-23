@@ -20,6 +20,11 @@ import pygame
 from aetherlife.agents.greedy_agent import GreedyAgent
 from aetherlife.agents.random_agent import RandomAgent
 from aetherlife.config import FoodGridConfig
+from aetherlife.metrics.episode_report import (
+    EpisodeStatsTracker,
+    format_report_lines,
+)
+from aetherlife.viz.report_overlay import render_report_overlay
 from aetherlife.world.food_grid import FoodGrid
 
 
@@ -116,13 +121,30 @@ def run_gui(
     last_food = 0
     total_reward = 0.0
     food_eaten = 0
+    showing_report = False
+    report_lines: list[str] = []
+    tracker = EpisodeStatsTracker(n_agents=1)
+    tracker.reset(env)
 
     def reset_episode(new_seed: int | None = None) -> None:
-        nonlocal obs, total_reward, food_eaten
+        nonlocal obs, total_reward, food_eaten, tracker, showing_report
         s = new_seed if new_seed is not None else seed + episode_idx
         obs, _ = env.reset(seed=s)
         total_reward = 0.0
         food_eaten = 0
+        tracker = EpisodeStatsTracker(n_agents=1)
+        tracker.reset(env)
+        showing_report = False
+
+    def end_episode(outcome: str) -> None:
+        nonlocal last_outcome, last_lifespan, last_food, showing_report, report_lines, episode_idx
+        last_outcome = outcome
+        last_lifespan = env.step_count
+        last_food = food_eaten
+        report = tracker.finalize(env)
+        report_lines = format_report_lines(report)
+        showing_report = True
+        episode_idx += 1
 
     running = True
     while running:
@@ -133,11 +155,15 @@ def run_gui(
                 if event.key in (pygame.K_ESCAPE, pygame.K_q):
                     running = False
                 elif event.key == pygame.K_SPACE:
-                    paused = not paused
+                    if showing_report:
+                        reset_episode()
+                    else:
+                        paused = not paused
                 elif event.key == pygame.K_r:
-                    episode_idx += 1
+                    if not showing_report:
+                        episode_idx += 1
+                        last_outcome = "—"
                     reset_episode()
-                    last_outcome = "—"
                 elif event.key == pygame.K_a:
                     slot_idx = (slot_idx + 1) % len(agents)
                     agent = agents[slot_idx].factory()
@@ -149,18 +175,15 @@ def run_gui(
                 elif event.key == pygame.K_DOWN:
                     delay_ms = min(500, delay_ms + 20)
 
-        if not paused:
+        if not paused and not showing_report:
             action = agent.act(obs)
             obs, reward, terminated, truncated, info = env.step(action)
+            tracker.on_step(env, {0: info})
             total_reward += reward
             if info.get("ate"):
                 food_eaten += 1
             if terminated or truncated:
-                last_outcome = "SURVIVED" if truncated else "DIED"
-                last_lifespan = env.step_count
-                last_food = food_eaten
-                episode_idx += 1
-                reset_episode()
+                end_episode("SURVIVED" if truncated else "DIED")
 
         # ─── render grid ───────────────────────────────────────────────────
         screen.fill(BG)
@@ -218,9 +241,12 @@ def run_gui(
             pause_text = font_lg.render("PAUSED", True, HUD_RED)
             screen.blit(pause_text, (width - 90, info_y))
 
+        if showing_report:
+            render_report_overlay(screen, report_lines, font_lg, font_sm)
+
         pygame.display.flip()
         clock.tick(60)
-        if delay_ms > 0 and not paused:
+        if delay_ms > 0 and not paused and not showing_report:
             pygame.time.wait(delay_ms)
 
     pygame.quit()

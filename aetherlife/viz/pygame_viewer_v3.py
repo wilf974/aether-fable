@@ -17,6 +17,11 @@ from typing import Callable
 import numpy as np
 import pygame
 
+from aetherlife.metrics.episode_report import (
+    EpisodeStatsTracker,
+    format_report_lines,
+)
+from aetherlife.viz.report_overlay import render_report_overlay
 from aetherlife.world.seasonal_grid import (
     Season,
     SeasonalConfig,
@@ -118,11 +123,18 @@ def run_gui_v3(
     delay_ms = tick_delay_ms
     episode_idx = 0
     last_outcome = "—"
+    showing_report = False
+    report_lines: list[str] = []
+    tracker = EpisodeStatsTracker(n_agents=env.cfg.n_agents, track_seasons=True)
+    tracker.reset(env)
 
     def reset_episode(new_seed: int | None = None) -> None:
-        nonlocal obs_dict
+        nonlocal obs_dict, tracker, showing_report
         s = new_seed if new_seed is not None else seed + episode_idx
         obs_dict, _ = env.reset(seed=s)
+        tracker = EpisodeStatsTracker(n_agents=env.cfg.n_agents, track_seasons=True)
+        tracker.reset(env)
+        showing_report = False
 
     def switch_density() -> None:
         nonlocal n_idx, env, policy, obs_dict, episode_idx, last_outcome
@@ -133,6 +145,14 @@ def run_gui_v3(
         reset_episode()
         last_outcome = "—"
 
+    def end_episode(outcome: str) -> None:
+        nonlocal last_outcome, showing_report, report_lines, episode_idx
+        last_outcome = outcome
+        report = tracker.finalize(env)
+        report_lines = format_report_lines(report)
+        showing_report = True
+        episode_idx += 1
+
     running = True
     while running:
         for event in pygame.event.get():
@@ -142,11 +162,15 @@ def run_gui_v3(
                 if event.key in (pygame.K_ESCAPE, pygame.K_q):
                     running = False
                 elif event.key == pygame.K_SPACE:
-                    paused = not paused
+                    if showing_report:
+                        reset_episode()
+                    else:
+                        paused = not paused
                 elif event.key == pygame.K_r:
-                    episode_idx += 1
+                    if not showing_report:
+                        episode_idx += 1
+                        last_outcome = "—"
                     reset_episode()
-                    last_outcome = "—"
                 elif event.key == pygame.K_n:
                     switch_density()
                 elif event.key == pygame.K_t:
@@ -156,18 +180,17 @@ def run_gui_v3(
                 elif event.key == pygame.K_DOWN:
                     delay_ms = min(500, delay_ms + 15)
 
-        if not paused and env.n_alive > 0 and env.step_count < env.cfg.max_steps:
+        if not paused and not showing_report and env.n_alive > 0 and env.step_count < env.cfg.max_steps:
             actions = policy.act_dict(obs_dict, greedy=True)
             next_obs, rewards, terminated, truncated, infos = env.step(actions)
+            tracker.on_step(env, infos)
             obs_dict = {aid: o for aid, o in next_obs.items() if env.agent_state(aid).alive}
             if env.n_alive == 0 or env.step_count >= env.cfg.max_steps:
-                last_outcome = (
+                outcome = (
                     "ALL DEAD" if env.n_alive == 0
                     else f"TRUNCATED ({env.n_alive}/{env.cfg.n_agents} alive)"
                 )
-                episode_idx += 1
-                pygame.time.wait(500)
-                reset_episode()
+                end_episode(outcome)
 
         # ─── render grid ───────────────────────────────────────────────────
         screen.fill(BG)
@@ -233,7 +256,9 @@ def run_gui_v3(
             f"autumn={env.cfg.seasonal.autumn_lambda_factor:.2f}  "
             f"winter={env.cfg.seasonal.winter_lambda_factor:.2f}"
         )
-        controls = "SPACE pause  R reset  N density  T toggle heatmap  ↑/↓ speed  Q quit"
+        controls = (
+            "SPACE pause/next  R reset  N density  T heatmap  ↑/↓ speed  Q quit"
+        )
 
         screen.blit(font_lg.render(line1, True, season_tint), (12, hud_y0 + 8))
         screen.blit(font_sm.render(line2, True, HUD_FG), (12, hud_y0 + 32))
@@ -244,9 +269,12 @@ def run_gui_v3(
         if paused:
             screen.blit(font_lg.render("PAUSED", True, HUD_RED), (width - 90, hud_y0 + 8))
 
+        if showing_report:
+            render_report_overlay(screen, report_lines, font_lg, font_sm)
+
         pygame.display.flip()
         clock.tick(60)
-        if delay_ms > 0 and not paused:
+        if delay_ms > 0 and not paused and not showing_report:
             pygame.time.wait(delay_ms)
 
     pygame.quit()
