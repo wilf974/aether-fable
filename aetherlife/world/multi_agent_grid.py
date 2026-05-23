@@ -35,6 +35,7 @@ from aetherlife.world.cache import CacheConfig
 from aetherlife.world.construction import BuildConfig, NestRecord
 from aetherlife.world.food_grid import Action, _DELTAS
 from aetherlife.world.reproduction import LineageEdge, ReproductionConfig
+from aetherlife.world.traits import AgentTraits
 
 
 @dataclass(frozen=True)
@@ -109,6 +110,8 @@ class _AgentState:
     root_ancestor_id: int = -1
     # V6.1 — graines accumulées en mangeant food, dépensées en plantant
     seeds: int = 0
+    # V7 — biais comportementaux hérités/mutés (None = pas de traits, behavior neutre)
+    traits: AgentTraits | None = None
 
 
 class MultiAgentFoodGrid:

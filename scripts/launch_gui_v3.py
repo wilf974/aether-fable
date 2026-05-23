@@ -21,6 +21,7 @@ from aetherlife.world.construction import BuildConfig
 from aetherlife.world.planting import PlantingConfig
 from aetherlife.world.reproduction import ReproductionConfig
 from aetherlife.world.seasonal_grid import SeasonalConfig, SeasonalMultiAgentConfig
+from aetherlife.world.traits import TraitsConfig
 
 
 # Presets équilibrés pour observer les comportements sans tout tuer
@@ -305,6 +306,13 @@ def main() -> None:
     parser.add_argument("--plant-growth-ticks", type=int, default=None)
     parser.add_argument("--plant-cooldown", type=int, default=None)
     parser.add_argument("--initial-seeds", type=int, default=2)
+    # V7 — traits héritables (auto-on en mode evolve/civ/tribe/prosper/garden)
+    parser.add_argument(
+        "--traits", type=str, default=None, choices=["on", "off"],
+        help="Active l'héritage de traits comportementaux (sélection darwinienne).",
+    )
+    parser.add_argument("--traits-mutation-std", type=float, default=0.08)
+    parser.add_argument("--traits-initial-std", type=float, default=0.15)
     args = parser.parse_args()
 
     # V6.4 — defaults grid adaptés au mode si pas override CLI
@@ -457,6 +465,19 @@ def main() -> None:
         initial_seeds=args.initial_seeds,
     )
 
+    # V7 — traits auto-on dès qu'il y a reproduction (sinon pas d'héritage à observer)
+    if args.traits is None:
+        traits_enabled = args.mode in (
+            "evolve", "civ", "tribe", "prosper", "garden"
+        )
+    else:
+        traits_enabled = args.traits == "on"
+    traits = TraitsConfig(
+        enabled=traits_enabled,
+        mutation_std=args.traits_mutation_std,
+        initial_std=args.traits_initial_std,
+    )
+
     cfg = SeasonalMultiAgentConfig(
         rows=args.rows, cols=args.cols, n_agents=args.n_agents,
         max_energy=pick("max_energy"),
@@ -472,10 +493,11 @@ def main() -> None:
         build=build,
         cache=cache,
         planting=planting,
+        traits=traits,
     )
 
     print(
-        f"AetherLife V5.3 — mode={args.mode}  N={args.n_agents}  "
+        f"AetherLife V7 — mode={args.mode}  N={args.n_agents}  "
         f"grid={args.rows}x{args.cols}  period={args.season_period}\n"
         f"  metabolism={cfg.metabolism}  food_value={cfg.food_value}  "
         f"start_energy={cfg.start_energy}  max_steps={cfg.max_steps}\n"
@@ -489,6 +511,8 @@ def main() -> None:
         f"withdraw<{cache.withdrawal_threshold}  cap={cache.max_capacity}\n"
         f"  planting={planting.enabled}  threshold={planting.energy_threshold}  "
         f"cost={planting.energy_cost}  growth={planting.growth_ticks}t\n"
+        f"  traits={traits.enabled}  mutation_std={traits.mutation_std}  "
+        f"initial_std={traits.initial_std}\n"
     )
 
     run_gui_v3(cfg, cell_px=args.cell_px, tick_delay_ms=args.tick_delay_ms, seed=args.seed)

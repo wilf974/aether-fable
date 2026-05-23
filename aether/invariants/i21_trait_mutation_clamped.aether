@@ -1,0 +1,14 @@
+(@intent "AetherLife I21 — mutation gaussienne d'un trait reste dans [lo, hi]")
+(@example 0.5 0.05 0.0 1.0 0.55)
+(@example 0.5 -0.05 0.0 1.0 0.45)
+(@example 0.9 0.5 0.0 1.0 1.0)
+(@example 0.1 -0.5 0.0 1.0 0.0)
+(@example 0.0 0.0 0.0 1.0 0.0)
+(@example 1.0 0.0 0.0 1.0 1.0)
+(@example 0.5 0.0 0.0 1.0 0.5)
+(@invariant (>= result lo))
+(@invariant (<= result hi))
+(fn clamp_trait ((parent num) (noise num) (lo num) (hi num)) num
+  (if (< (+ parent noise) lo) lo
+    (if (> (+ parent noise) hi) hi
+      (+ parent noise))))

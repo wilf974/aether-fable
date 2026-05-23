@@ -41,6 +41,7 @@ from aetherlife.world.food_grid import Action, _DELTAS
 from aetherlife.world.multi_agent_grid import _AgentState
 from aetherlife.world.planting import PlantingConfig, PlantRecord
 from aetherlife.world.reproduction import LineageEdge, ReproductionConfig
+from aetherlife.world.traits import AgentTraits, TraitDistribution, TraitsConfig
 
 
 class Season(IntEnum):
@@ -110,6 +111,7 @@ class SeasonalMultiAgentConfig:
     build: BuildConfig = BuildConfig()
     cache: CacheConfig = CacheConfig()
     planting: PlantingConfig = PlantingConfig()
+    traits: TraitsConfig = TraitsConfig()  # V7 — héritage de biais comportementaux
 
     def __post_init__(self) -> None:
         if self.rows <= 0 or self.cols <= 0:
@@ -356,6 +358,25 @@ class SeasonalMultiAgentFoodGrid:
     def plants_matured_total(self) -> int:
         return self._plants_matured_total
 
+    # V7 — traits
+    @property
+    def trait_distribution(self) -> TraitDistribution:
+        """Snapshot moyenne/écart-type des traits sur la population vivante."""
+        if not self.cfg.traits.enabled:
+            return TraitDistribution()
+        alive_traits = [
+            a.traits for a in self._agents
+            if a.alive and a.traits is not None
+        ]
+        return TraitDistribution.from_traits(alive_traits)
+
+    def agent_traits(self, agent_id: int) -> AgentTraits | None:
+        """Retourne les traits d'un agent, ou None si pas de traits."""
+        try:
+            return self.agent_state(agent_id).traits
+        except KeyError:
+            return None
+
     def can_plant_at(self, agent: _AgentState) -> bool:
         """V6 — vérifie si l'agent peut planter à sa position actuelle.
 
@@ -440,13 +461,17 @@ class SeasonalMultiAgentFoodGrid:
         ]
         # V5.2 — root_ancestor_id = own id pour les initiaux
         # V6.1 — initial seeds pour démarrer le cycle agricole
+        # V7  — traits initiaux gaussiens si traits.enabled
         init_seeds = (
             self.cfg.planting.initial_seeds
             if self.cfg.planting.enabled else 0
         )
+        tcfg = self.cfg.traits
         for a in self._agents:
             a.root_ancestor_id = a.agent_id
             a.seeds = init_seeds
+            if tcfg.enabled:
+                a.traits = AgentTraits.random(self._spawn_rng, tcfg)
         self._next_agent_id = self.cfg.n_agents
         self._lineage = []
         self._births_last_step = []
@@ -665,6 +690,14 @@ class SeasonalMultiAgentFoodGrid:
             adj = self._find_free_adjacent(parent.pos)
             if adj is None:
                 continue
+            # V7 — héritage de traits avec mutation gaussienne
+            child_traits = None
+            tcfg = self.cfg.traits
+            if tcfg.enabled:
+                parent_traits = parent.traits or AgentTraits.random(
+                    self._spawn_rng, tcfg
+                )
+                child_traits = parent_traits.mutate(self._spawn_rng, tcfg)
             child = _AgentState(
                 agent_id=self._next_agent_id,
                 pos=adj,
@@ -675,6 +708,7 @@ class SeasonalMultiAgentFoodGrid:
                 generation=child_generation(parent.generation),
                 last_repro_tick=-10**9,
                 root_ancestor_id=parent.root_ancestor_id,   # V5.2 héritage
+                traits=child_traits,                         # V7 héritage+mutation
             )
             parent.energy -= rcfg.energy_cost
             parent.last_repro_tick = self._step_count

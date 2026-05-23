@@ -14,6 +14,15 @@ Hiérarchie d'objectifs (par priorité décroissante) :
     5. Énergie moyenne ET food visible proche → va manger
     6. Sinon : marche aléatoire douce (préfère ne pas revenir au step
        précédent)
+
+V7 — Si l'agent a des `traits`, ses seuils et priorités sont modulés :
+    - build_bias ↑   abaisse le seuil de build (construit plus facilement)
+    - plant_bias ↑   abaisse le seuil de plant et prioritise la plantation
+    - cache_bias ↑   prioritise dépôt/retrait du cache même si food proche
+    - explore_bias ↑ augmente la distance max d'errance / cherche food loin
+
+Les agents bien calibrés survivent et propagent leurs traits — sélection
+darwinienne émergente.
 """
 from __future__ import annotations
 
@@ -80,6 +89,16 @@ class SmartHeuristicAgent:
             ar, ac = agent.pos
             energy = agent.energy
 
+            # V7 — traits modulent les seuils (trait haut → action plus facile).
+            #   threshold_eff = base * (1.5 - bias) ∈ [base*0.5, base*1.5]
+            traits = getattr(agent, "traits", None)
+            if traits is not None:
+                build_thr_eff = build_threshold * (1.5 - traits.build_bias)
+                comfortable_eff = comfortable * (1.5 - traits.cache_bias)
+            else:
+                build_thr_eff = build_threshold
+                comfortable_eff = comfortable
+
             # 1. Famine critique : aller à son nid (si cache) ou food
             own_nest = nest_lookup.get(aid)
             if energy < critical:
@@ -103,7 +122,8 @@ class SmartHeuristicAgent:
             # 2. Surplus + pas de nid PROPRE → construire (cherche cellule libre)
             # V6.4 — au lieu de random walk quand sur food, va activement vers
             # une cellule libre pour pouvoir construire au prochain tick.
-            if energy >= build_threshold and own_nest is None:
+            # V7 — seuil modulé par build_bias (trait haut = construit plus tôt).
+            if energy >= build_thr_eff and own_nest is None:
                 plants_dict = getattr(env, "plants", {})
                 pos_blocked = (
                     env.food_mask[ar, ac]
@@ -131,9 +151,16 @@ class SmartHeuristicAgent:
             has_seed = agent.seeds >= (
                 pcfg.seeds_required if pcfg and pcfg.enabled else 1
             )
+            # V7 — plant_bias module le seuil d'énergie pour planter
+            if pcfg and pcfg.enabled:
+                plant_thr_eff = pcfg.energy_threshold
+                if traits is not None:
+                    plant_thr_eff = pcfg.energy_threshold * (1.5 - traits.plant_bias)
+            else:
+                plant_thr_eff = float("inf")
             can_plant = (
                 pcfg is not None and pcfg.enabled
-                and energy >= pcfg.energy_threshold
+                and energy >= plant_thr_eff
                 and has_seed
             )
             # Détection "silo bas" et "hiver approche" pour augmenter prio plant
@@ -172,7 +199,8 @@ class SmartHeuristicAgent:
                     continue
 
             # 3. Surplus ET nid existe → aller au nid (rest + déposer cache)
-            if energy >= comfortable and own_nest is not None:
+            # V7 — comfortable_eff modulé par cache_bias (trait haut = retour nid plus tôt).
+            if energy >= comfortable_eff and own_nest is not None:
                 if (ar, ac) == own_nest.pos:
                     actions[aid] = self._idle_action(ar, ac)
                 else:
@@ -181,7 +209,13 @@ class SmartHeuristicAgent:
                 continue
 
             # 4. Énergie moyenne : chercher food si proche
-            target = self._nearest_food(ar, ac, food_positions, max_dist=10)
+            # V7 — explore_bias étend ou réduit la distance max de recherche.
+            #   max_dist_eff = 10 * (0.5 + explore_bias) ∈ [5, 15]
+            if traits is not None:
+                max_dist_eff = int(10 * (0.5 + traits.explore_bias))
+            else:
+                max_dist_eff = 10
+            target = self._nearest_food(ar, ac, food_positions, max_dist=max_dist_eff)
             if target is not None:
                 actions[aid] = self._move_toward(ar, ac, *target)
                 self._prev_pos[aid] = (ar, ac)

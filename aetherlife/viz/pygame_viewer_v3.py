@@ -308,7 +308,7 @@ def run_gui_v3(
 
     def make_env(n_agents: int) -> SeasonalMultiAgentFoodGrid:
         # V6.3-fix : propager TOUS les sous-configs (reproduction, build, cache,
-        # planting) — sinon le switch density perdait toutes les mécaniques V4+.
+        # planting, traits V7) — sinon le switch density perdait toutes les mécaniques V4+.
         cfg = SeasonalMultiAgentConfig(
             rows=base_cfg.rows, cols=base_cfg.cols, n_agents=n_agents,
             max_energy=base_cfg.max_energy, start_energy=base_cfg.start_energy,
@@ -322,6 +322,7 @@ def run_gui_v3(
             build=base_cfg.build,
             cache=base_cfg.cache,
             planting=base_cfg.planting,
+            traits=base_cfg.traits,
         )
         return SeasonalMultiAgentFoodGrid(cfg)
 
@@ -875,12 +876,15 @@ def run_gui_v3(
         ccfg = env.cfg.cache
         pcfg = getattr(env.cfg, "planting", None)
         plant_on = pcfg.enabled if pcfg else False
+        tcfg = getattr(env.cfg, "traits", None)
+        traits_on = tcfg.enabled if tcfg else False
         for label, active in [
             ("Reproduction", rcfg.enabled),
             ("Construction", bcfg.enabled),
             ("Family inherit.", bcfg.family_inheritance),
             ("Cache food", ccfg.enabled),
             ("Plantation V6", plant_on),
+            ("Traits V7", traits_on),
             ("Heatmap temp.", show_temp),
             ("Trails", show_trails),
         ]:
@@ -889,6 +893,58 @@ def run_gui_v3(
             screen.blit(font_sm.render(f"{mark:5s} {label}", True, color),
                         (legend_x0 + 4, ly))
             ly += 15
+
+        # V7 — trait_distribution mini-histogramme dans la légende
+        if traits_on:
+            ly += 8
+            screen.blit(font_md.render("Traits (moy ± std)", True, HUD_FG),
+                        (legend_x0, ly))
+            ly += 18
+            dist = env.trait_distribution
+            if dist.n > 0:
+                trait_labels = ["build", "plant", "cache", "explor"]
+                trait_colors = [
+                    (255, 165, 90),   # build orange
+                    (140, 220, 120),  # plant vert
+                    (180, 140, 240),  # cache violet
+                    (100, 200, 240),  # explore cyan
+                ]
+                bar_max_w = LEGEND_W - 100
+                for i, lab in enumerate(trait_labels):
+                    m = float(dist.mean[i])
+                    s = float(dist.std[i])
+                    bar_w = int(bar_max_w * m)
+                    # barre std en arrière (gris clair)
+                    std_lo = int(bar_max_w * max(0.0, m - s))
+                    std_hi = int(bar_max_w * min(1.0, m + s))
+                    pygame.draw.rect(
+                        screen, (90, 90, 100),
+                        pygame.Rect(legend_x0 + 50 + std_lo, ly + 3,
+                                    max(1, std_hi - std_lo), 8),
+                    )
+                    pygame.draw.rect(
+                        screen, trait_colors[i],
+                        pygame.Rect(legend_x0 + 50, ly + 4, max(1, bar_w), 6),
+                    )
+                    screen.blit(
+                        font_sm.render(f"{lab:6s}", True, HUD_FG),
+                        (legend_x0 + 4, ly),
+                    )
+                    screen.blit(
+                        font_sm.render(f"{m:.2f}", True, HUD_DIM),
+                        (legend_x0 + 50 + bar_max_w + 6, ly),
+                    )
+                    ly += 14
+                ly += 4
+                screen.blit(
+                    font_sm.render(f"n={dist.n}", True, HUD_DIM),
+                    (legend_x0 + 4, ly),
+                )
+                ly += 14
+            else:
+                screen.blit(font_sm.render("(no live agents)", True, HUD_DIM),
+                            (legend_x0 + 4, ly))
+                ly += 14
 
         # ─── HUD bas ──────────────────────────────────────────────────────
         hud_y0 = env.cfg.rows * cell_px
