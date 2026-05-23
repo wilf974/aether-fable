@@ -1,0 +1,10 @@
+(@intent "AetherLife I6 — sans naissance, population vivante après step ≤ population avant")
+(@example 10 0 10)
+(@example 10 1 9)
+(@example 10 3 7)
+(@example 5 5 0)
+(@example 0 0 0)
+(@invariant (>= result 0))
+(@invariant (<= result n_alive_before))
+(fn pop_after_deaths ((n_alive_before num) (n_died num)) num
+  (max 0 (- n_alive_before n_died)))

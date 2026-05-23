@@ -51,3 +51,30 @@ def clamp_pos(pos: int, delta: int, dim: int) -> int:
     Invariants : 0 ≤ result < dim.
     """
     return max(0, min(dim - 1, pos + delta))
+
+
+def pop_after_deaths(n_alive_before: int, n_died: int) -> int:
+    """I6 — sans naissance, population vivante après step ≤ population avant.
+
+    Mirror de `aether/invariants/i6_pop_after_deaths.aether`.
+    Invariants : 0 ≤ result ≤ n_alive_before.
+    """
+    return max(0, n_alive_before - n_died)
+
+
+def energy_gained(n_food_eaten: int, food_value: float) -> float:
+    """I7 — conservation : énergie gagnée = food consommée × food_value.
+
+    Mirror de `aether/invariants/i7_energy_gained.aether`.
+    Invariants : result ≥ 0 et result = n_food_eaten × food_value.
+    """
+    return n_food_eaten * food_value
+
+
+def total_ids_emitted(n_total_ids_alive: int, n_dead_so_far: int) -> int:
+    """I8 — total des agent_ids émis pendant l'épisode.
+
+    Pas de réutilisation : un agent mort ne libère pas son id.
+    Mirror de `aether/invariants/i8_total_ids_emitted.aether`.
+    """
+    return n_total_ids_alive + n_dead_so_far

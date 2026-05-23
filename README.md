@@ -2,7 +2,7 @@
 
 Plateforme RL pour l'étude expérimentale des comportements émergents dans des écosystèmes artificiels procéduraux.
 
-**Statut** : V1.5 (`v0.1.5-alpha`) — DQN MW_IA intégré + best-checkpoint + GUI étendue.
+**Statut** : V2 (`v0.2.0-alpha`) — multi-agent IDQN + tragedy of the commons démontrée.
 
 ## Vision
 
@@ -86,6 +86,35 @@ tracking** et **early stopping** (patience N évaluations sans amélioration).
 
 Le checkpoint best est sauvé dans `checkpoints/dqn_best.pt`.
 
+## V2 — Multi-agent IDQN
+
+Entraîner un IDQN shared-weights sur 16 agents :
+
+```bash
+python scripts/train_v2_idqn.py --n-agents 16 --episodes 300 --device cuda
+```
+
+### Tragedy of the commons — density sweep
+
+Démontrer l'effondrement collectif sous densité haute (random policy, instantané) :
+
+```bash
+python scripts/v2_density_sweep.py
+```
+
+Résultats observés sur defaults (grille 32×32, density 0.05, respawn λ=1.0, 10 ép/N) :
+
+```
+   N |  alive_rate |  mean_life |  mean_food | food/agent
+   2 |      45.0% |      292.4 |       51.3 |     25.65
+   4 |      35.0% |      235.7 |       81.3 |     20.32
+   8 |      46.2% |      296.8 |      180.6 |     22.57
+  16 |      25.0% |      209.8 |      214.4 |     13.40
+  32 |      14.7% |      154.5 |      250.0 |      7.81
+```
+
+→ ressource individuelle (food/agent) chute de 25.7 (N=2) à 7.8 (N=32) : **70 % de perte**, alive_rate divisé par 3.
+
 ## GUI live
 
 ```bash
@@ -124,7 +153,7 @@ pytest tests/guardrails/ -v
 pytest -q
 ```
 
-Attendu V1.5 : **90 tests verts** (V1 : 17 config + 27 guardrails + 14 food_grid + 7 env + 7 agents = 72 ; V1.5 : 5 dqn_agent + 8 best_checkpoint + 5 dqn_runner = 18).
+Attendu V2 : **122 tests verts** (V1 : 72, V1.5 : 18, V2 : 11 ma_grid + 8 idqn + 3 ma_runner + 10 I6-I8 mirror = 32).
 
 ## Catalogue d'invariants V1
 
@@ -135,6 +164,9 @@ Attendu V1.5 : **90 tests verts** (V1 : 17 config + 27 guardrails + 14 food_grid
 | I3 | `i3_terminated.aether` | `guardrails.invariants.is_terminated` | `result ⟺ energy ≤ 0` |
 | I4 | `i4_step_reward.aether` | `guardrails.invariants.step_reward` | `reward = -metabolism + food_value · ate` |
 | I5 | `i5_clamp_pos.aether` | `guardrails.invariants.clamp_pos` | `0 ≤ result < dim` |
+| I6 | `i6_pop_after_deaths.aether` | `guardrails.invariants.pop_after_deaths` | `0 ≤ result ≤ n_alive_before` |
+| I7 | `i7_energy_gained.aether` | `guardrails.invariants.energy_gained` | `result = n_food_eaten × food_value` |
+| I8 | `i8_total_ids_emitted.aether` | `guardrails.invariants.total_ids_emitted` | `result = n_alive + n_dead` (pas de réutilisation d'id) |
 
 ## Roadmap
 
@@ -142,6 +174,7 @@ Attendu V1.5 : **90 tests verts** (V1 : 17 config + 27 guardrails + 14 food_grid
 |---|---|---|
 | **V1** | Solo Forager + baselines + invariants I1-I5 | ✅ livré (`v0.1.0-alpha`) |
 | **V1.5** | Wrap DQN MW_IA + GUI live pygame + best-checkpoint + assessment | ✅ livré (`v0.1.5-alpha`) |
+| **V2** | Multi-agent IDQN shared-weights + invariants I6-I8 + tragedy of the commons | ✅ livré (`v0.2.0-alpha`) |
 | V2 | Multi-agent independent (IDQN), tragedy of the commons | À venir |
 | V3 | Saisons + météo + food regen dynamique (LSTM vs MLP) | À venir |
 | V4 | Reproduction + lineage + PBT | À venir |

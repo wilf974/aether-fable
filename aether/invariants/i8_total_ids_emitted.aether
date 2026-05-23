@@ -1,0 +1,8 @@
+(@intent "AetherLife I8 — agent_id reste unique : un id retiré ne peut pas être réattribué pendant l'épisode")
+(@example 5 3 8)
+(@example 0 5 5)
+(@example 10 0 10)
+(@invariant (>= result n_dead_so_far))
+(@invariant (>= result n_total_ids_alive))
+(fn total_ids_emitted ((n_total_ids_alive num) (n_dead_so_far num)) num
+  (+ n_total_ids_alive n_dead_so_far))

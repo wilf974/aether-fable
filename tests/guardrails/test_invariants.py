@@ -6,10 +6,13 @@ import pytest
 from aetherlife.guardrails.exceptions import InvariantViolationError
 from aetherlife.guardrails.invariants import (
     clamp_pos,
+    energy_gained,
     energy_no_food,
     energy_with_food,
     is_terminated,
+    pop_after_deaths,
     step_reward,
+    total_ids_emitted,
 )
 
 
@@ -110,6 +113,41 @@ def test_i5_invariants() -> None:
         for delta in [-5, -1, 0, 1, 5]:
             r = clamp_pos(pos, delta, 10)
             assert 0 <= r < 10
+
+
+@pytest.mark.parametrize(
+    "n_alive_before,n_died,expected",
+    [(10, 0, 10), (10, 1, 9), (10, 3, 7), (5, 5, 0), (0, 0, 0)],
+)
+def test_i6_pop_after_deaths(n_alive_before: int, n_died: int, expected: int) -> None:
+    """I6 — examples strictement identiques à i6_pop_after_deaths.aether."""
+    assert pop_after_deaths(n_alive_before, n_died) == expected
+
+
+def test_i6_invariants() -> None:
+    """I6 — 0 ≤ result ≤ n_alive_before."""
+    for n in range(0, 20):
+        for d in range(0, n + 5):
+            r = pop_after_deaths(n, d)
+            assert 0 <= r <= n
+
+
+@pytest.mark.parametrize(
+    "n_food_eaten,food_value,expected",
+    [(0, 5, 0), (1, 5, 5), (3, 5, 15), (10, 20, 200)],
+)
+def test_i7_energy_gained(n_food_eaten: int, food_value: float, expected: float) -> None:
+    """I7 — examples strictement identiques à i7_energy_gained.aether."""
+    assert energy_gained(n_food_eaten, food_value) == expected
+
+
+@pytest.mark.parametrize(
+    "n_alive,n_dead,expected",
+    [(5, 3, 8), (0, 5, 5), (10, 0, 10)],
+)
+def test_i8_total_ids_emitted(n_alive: int, n_dead: int, expected: int) -> None:
+    """I8 — examples strictement identiques à i8_total_ids_emitted.aether."""
+    assert total_ids_emitted(n_alive, n_dead) == expected
 
 
 def test_invariant_violation_error_format() -> None:

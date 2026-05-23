@@ -13,6 +13,9 @@ EXPECTED=(
     "i3_terminated.aether"
     "i4_step_reward.aether"
     "i5_clamp_pos.aether"
+    "i6_pop_after_deaths.aether"
+    "i7_energy_gained.aether"
+    "i8_total_ids_emitted.aether"
 )
 
 missing=0

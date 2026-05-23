@@ -1,0 +1,9 @@
+(@intent "AetherLife I7 — conservation : énergie gagnée = food consommée × food_value")
+(@example 0 5 0)
+(@example 1 5 5)
+(@example 3 5 15)
+(@example 10 20 200)
+(@invariant (>= result 0))
+(@invariant (= result (* n_food_eaten food_value)))
+(fn energy_gained ((n_food_eaten num) (food_value num)) num
+  (* n_food_eaten food_value))
