@@ -11,6 +11,7 @@ Contrôles :
 """
 from __future__ import annotations
 
+import colorsys
 import sys
 from collections import deque
 from typing import Callable
@@ -70,12 +71,27 @@ HUD_RED = (220, 90, 90)
 HUD_GREEN = (90, 200, 90)
 HUD_PANEL = (24, 24, 30)
 
-AGENT_COLORS = [
-    (240, 180, 60), (60, 180, 240), (240, 80, 140), (180, 240, 60),
-    (200, 100, 220), (240, 130, 60), (60, 220, 180), (200, 200, 80),
-    (140, 100, 240), (240, 80, 80), (80, 240, 100), (220, 200, 220),
-    (140, 200, 240), (220, 140, 80), (160, 240, 200), (240, 160, 200),
-]
+_GOLDEN_RATIO_CONJ = 0.6180339887498949   # 1/phi
+
+
+def agent_color(agent_id: int) -> tuple[int, int, int]:
+    """Couleur distincte par agent_id via golden-angle HSV.
+
+    Quel que soit le nombre d'agents, chaque ID a une couleur unique et
+    bien espacée des voisines (rotation par 1/phi sur le cercle des teintes).
+    """
+    h = (agent_id * _GOLDEN_RATIO_CONJ) % 1.0
+    # Vary saturation/value un peu pour différencier davantage
+    s = 0.62 + (agent_id % 3) * 0.08          # 0.62, 0.70, 0.78
+    v = 0.85 + ((agent_id // 5) % 2) * 0.10   # 0.85 ou 0.95
+    r, g, b = colorsys.hsv_to_rgb(h, s, v)
+    return (int(r * 255), int(g * 255), int(b * 255))
+
+
+def text_color_for(bg: tuple[int, int, int]) -> tuple[int, int, int]:
+    """Choisit blanc ou noir selon la luminance du fond pour lisibilité."""
+    luminance = 0.299 * bg[0] + 0.587 * bg[1] + 0.114 * bg[2]
+    return (20, 20, 25) if luminance > 130 else (245, 245, 250)
 
 SEASON_LABELS = {0: "Spring", 1: "Summer", 2: "Autumn", 3: "Winter"}
 SEASON_TINTS = {
@@ -105,6 +121,12 @@ def _random_policy_factory(env: SeasonalMultiAgentFoodGrid, seed: int = 0):
             return {aid: int(rng.integers(0, 4)) for aid in obs_dict}
 
     return _R()
+
+
+def _smart_policy_factory(env: SeasonalMultiAgentFoodGrid, seed: int = 0):
+    """V5.5 — politique heuristique stratégique (cherche food, va au nid, build, cache)."""
+    from aetherlife.agents.smart_heuristic import SmartHeuristicAgent
+    return SmartHeuristicAgent(env, seed=seed)
 
 
 def run_gui_v3(
@@ -147,7 +169,17 @@ def run_gui_v3(
     font_md = pygame.font.SysFont("consolas", 14, bold=True)
     font_sm = pygame.font.SysFont("consolas", 12)
 
-    policy = _random_policy_factory(env, seed=seed)
+    # V5.5 — choix policy par défaut : Smart si build/repro activés, sinon Random
+    default_smart = (
+        base_cfg.build.enabled or base_cfg.reproduction.enabled
+        or base_cfg.cache.enabled
+    )
+    policy_slots = [
+        ("Smart", lambda e: _smart_policy_factory(e, seed=seed)),
+        ("Random", lambda e: _random_policy_factory(e, seed=seed)),
+    ]
+    policy_idx = 0 if default_smart else 1
+    policy = policy_slots[policy_idx][1](env)
     show_temp = show_temp_heatmap
     paused = False
     delay_ms = tick_delay_ms
@@ -188,7 +220,15 @@ def run_gui_v3(
         nonlocal n_idx, env, policy, obs_dict, episode_idx, last_outcome
         n_idx = (n_idx + 1) % len(n_choices)
         env = make_env(n_choices[n_idx])
-        policy = _random_policy_factory(env, seed=seed)
+        policy = policy_slots[policy_idx][1](env)
+        episode_idx += 1
+        reset_episode()
+        last_outcome = "—"
+
+    def switch_policy() -> None:
+        nonlocal policy_idx, policy, episode_idx, last_outcome
+        policy_idx = (policy_idx + 1) % len(policy_slots)
+        policy = policy_slots[policy_idx][1](env)
         episode_idx += 1
         reset_episode()
         last_outcome = "—"
@@ -221,6 +261,8 @@ def run_gui_v3(
                     reset_episode()
                 elif event.key == pygame.K_n:
                     switch_density()
+                elif event.key == pygame.K_a:
+                    switch_policy()
                 elif event.key == pygame.K_t:
                     show_temp = not show_temp
                 elif event.key == pygame.K_l:
@@ -309,7 +351,7 @@ def run_gui_v3(
                 nr, nc = nest.pos
                 nx = nc * cell_px
                 ny = nr * cell_px
-                nest_color = AGENT_COLORS[nest.owner_id % len(AGENT_COLORS)]
+                nest_color = agent_color(nest.owner_id)
                 roof_color = (
                     min(255, nest_color[0] + 30),
                     min(255, nest_color[1] + 30),
@@ -340,6 +382,15 @@ def run_gui_v3(
                     screen, (30, 30, 35),
                     pygame.Rect(door_x, door_y, door_w, door_h),
                 )
+                # V5.5 — ID owner sur le toit (avec petit fond pour lisibilité)
+                if cell_px >= 20:
+                    owner_id_text = str(nest.owner_id)
+                    txt_color = text_color_for(roof_color)
+                    id_surf = font_sm.render(owner_id_text, True, txt_color)
+                    id_rect = id_surf.get_rect(
+                        center=(nx + cell_px // 2, roof_y_top + (roof_y_base - roof_y_top) // 2 + 1)
+                    )
+                    screen.blit(id_surf, id_rect)
                 # V5.3 — barre cache à droite (silo)
                 stock = cache_stock.get(nest.owner_id, 0)
                 if cache_capacity > 0 and cache_capacity > 1:
@@ -386,7 +437,7 @@ def run_gui_v3(
         # V3.8 — draw trails first (under agents)
         if show_trails:
             for aid, trail in trails.items():
-                base_color = AGENT_COLORS[aid % len(AGENT_COLORS)]
+                base_color = agent_color(aid)
                 trail_list = list(trail)
                 trail_n = len(trail_list)
                 if trail_n <= 1:
@@ -426,7 +477,7 @@ def run_gui_v3(
                     (cx - rr, cy + rr), (cx + rr, cy - rr), 2,
                 )
                 continue
-            base_color = AGENT_COLORS[a.agent_id % len(AGENT_COLORS)]
+            base_color = agent_color(a.agent_id)
             # Age tint : mix vers gris à mesure que l'agent vieillit
             mix = MAX_AGE_MIX * age_frac
             color = tuple(
@@ -484,6 +535,12 @@ def run_gui_v3(
                     min(255, color[2] + 30),
                 )
                 pygame.draw.circle(screen, inner_color, (cx, cy), inner_r)
+            # V5.5 — ID de l'agent affiché si cellule assez grande
+            if cell_px >= 20:
+                txt_color = text_color_for(color)
+                id_surf = font_md.render(str(a.agent_id), True, txt_color)
+                id_rect = id_surf.get_rect(center=(cx, cy))
+                screen.blit(id_surf, id_rect)
 
         # ─── Légende latérale (à droite de la grille) ────────────────────
         legend_x0 = grid_w + 12
@@ -501,7 +558,7 @@ def run_gui_v3(
         screen.blit(font_sm.render("food", True, HUD_FG), (legend_x0 + 28, ly + 1))
         ly += 22
         # nest icon (mini maison)
-        nest_color_demo = AGENT_COLORS[0]
+        nest_color_demo = agent_color(0)
         pygame.draw.rect(screen, nest_color_demo,
                          pygame.Rect(legend_x0 + 4, ly + 6, 16, 10))
         pygame.draw.rect(screen, (20, 20, 20),
@@ -528,7 +585,7 @@ def run_gui_v3(
                     (legend_x0 + 18, ly + 1))
         ly += 22
         # agent vivant
-        pygame.draw.circle(screen, AGENT_COLORS[1], (legend_x0 + 12, ly + 6), 7)
+        pygame.draw.circle(screen, agent_color(1), (legend_x0 + 12, ly + 6), 7)
         pygame.draw.circle(screen, (255, 255, 255), (legend_x0 + 12, ly + 6), 7, 1)
         screen.blit(font_sm.render("agent vivant", True, HUD_FG),
                     (legend_x0 + 28, ly + 1))
@@ -610,9 +667,10 @@ def run_gui_v3(
             f"autumn={env.cfg.seasonal.autumn_lambda_factor:.2f}  "
             f"winter={env.cfg.seasonal.winter_lambda_factor:.2f}"
         )
+        policy_name = policy_slots[policy_idx][0]
         controls = (
-            "SPACE pause/next  R reset  N density  T heatmap  L trails  "
-            "B nests  ↑/↓ speed  Q quit"
+            f"SPACE pause/next  R reset  A policy ({policy_name})  N density  "
+            f"T heatmap  L trails  B nests  ↑/↓ speed  Q"
         )
 
         screen.blit(font_lg.render(line1, True, season_tint), (12, hud_y0 + 8))
