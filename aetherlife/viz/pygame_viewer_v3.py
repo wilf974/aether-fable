@@ -31,21 +31,31 @@ from aetherlife.world.seasonal_grid import (
 )
 
 
-# ─── viz config (V3.8 — living sandbox + V4 evolution) ─────────────────────
-TRAIL_LEN = 14                  # nombre de positions précédentes affichées par agent
-EAT_FLASH_FRAMES = 10           # durée du flash quand un agent mange
-AGE_GRAY = (190, 190, 195)      # couleur de "vieillissement" (mix progressif)
-MAX_AGE_MIX = 0.45              # max 45 % gris quand l'agent atteint max_steps
-HALO_EXTRA = 5                  # rayon halo extra (proportionnel à l'énergie)
-BIRTH_FLASH_FRAMES = 20         # durée du flash bleu sur l'enfant à la naissance
+# ─── viz config (V5.4 — refonte lisibilité) ──────────────────────────────
+TRAIL_LEN = 12
+EAT_FLASH_FRAMES = 10
+AGE_GRAY = (190, 190, 195)
+MAX_AGE_MIX = 0.45
+HALO_EXTRA = 4
+BIRTH_FLASH_FRAMES = 20
 BIRTH_FLASH_COLOR = (120, 200, 255)
-POP_CURVE_SAMPLES = 200         # nb max de points dans la courbe population
-POP_CURVE_H = 40                # hauteur du mini-graph en pixels
-# V5 — construction
-BUILD_FLASH_FRAMES = 15         # flash de construction
+POP_CURVE_SAMPLES = 200
+POP_CURVE_H = 50
+# V5 — construction (nid en maison stylisée)
+BUILD_FLASH_FRAMES = 15
 BUILD_FLASH_COLOR = (255, 200, 100)
-NEST_ALPHA = 150                # opacité des nids dessinés
-NEST_BORDER_ALPHA = 220
+NEST_BASE_ALPHA = 240           # nids beaucoup plus opaques qu'avant
+NEST_ROOF_ALPHA = 255
+# V5.3 — cache viz
+CACHE_BAR_COLOR = (90, 230, 90)
+CACHE_BAR_EMPTY_COLOR = (40, 80, 40)
+# food viz
+FOOD_BG = (50, 110, 50)
+FOOD_DOT = (180, 240, 110)
+# heatmap moins agressive (alpha plus bas)
+HEATMAP_ALPHA = 90              # plus discret (avant : 255 opaque)
+# panneau légende
+LEGEND_W = 220
 
 
 # ─── palette ───────────────────────────────────────────────────────────────
@@ -101,11 +111,11 @@ def run_gui_v3(
     base_cfg: SeasonalMultiAgentConfig | None = None,
     *,
     n_choices: tuple[int, ...] = (2, 4, 8, 16, 32, 64),
-    cell_px: int = 18,
-    hud_h: int = 140,
+    cell_px: int = 24,           # plus grand par défaut (était 18)
+    hud_h: int = 150,
     tick_delay_ms: int = 60,
     seed: int = 0,
-    show_temp_heatmap: bool = True,
+    show_temp_heatmap: bool = False,   # désactivé par défaut (toggle T)
 ) -> None:
     base_cfg = base_cfg or SeasonalMultiAgentConfig()
 
@@ -127,13 +137,15 @@ def run_gui_v3(
     obs_dict, _ = env.reset(seed=seed)
 
     pygame.init()
-    pygame.display.set_caption("AetherLife V3 — Seasonal Multi-Agent")
-    width = base_cfg.cols * cell_px
+    pygame.display.set_caption("AetherLife V5.3 — Seasonal Sandbox (caches + tribes)")
+    grid_w = base_cfg.cols * cell_px
+    width = grid_w + LEGEND_W
     height = base_cfg.rows * cell_px + hud_h
     screen = pygame.display.set_mode((width, height))
     clock = pygame.time.Clock()
-    font_lg = pygame.font.SysFont("consolas", 18, bold=True)
-    font_sm = pygame.font.SysFont("consolas", 13)
+    font_lg = pygame.font.SysFont("consolas", 19, bold=True)
+    font_md = pygame.font.SysFont("consolas", 14, bold=True)
+    font_sm = pygame.font.SysFont("consolas", 12)
 
     policy = _random_policy_factory(env, seed=seed)
     show_temp = show_temp_heatmap
@@ -254,23 +266,39 @@ def run_gui_v3(
         tmin = env.cfg.seasonal.temp_min
         tmax = env.cfg.seasonal.temp_max
 
+        # 1) base cell color (heatmap optionnel, sinon uniforme)
         for r in range(env.cfg.rows):
             for c in range(env.cfg.cols):
                 x, y = c * cell_px, r * cell_px
                 rect = pygame.Rect(x, y, cell_px, cell_px)
-                if env.food_mask[r, c]:
-                    color = CELL_FOOD
-                elif show_temp:
-                    color = _temp_to_color(float(temp_field[r, c]), tmin, tmax)
+                if show_temp:
+                    base_color = _temp_to_color(float(temp_field[r, c]), tmin, tmax)
+                    # rend la heatmap plus subtile
+                    cf = CELL_FREE
+                    mix = HEATMAP_ALPHA / 255
+                    base_color = tuple(
+                        int(cf[i] * (1 - mix) + base_color[i] * mix) for i in range(3)
+                    )
+                    pygame.draw.rect(screen, base_color, rect)
                 else:
-                    color = CELL_FREE
-                pygame.draw.rect(screen, color, rect)
-                if cell_px >= 12:
-                    pygame.draw.rect(screen, GRID_LINE, rect, 1)
+                    pygame.draw.rect(screen, CELL_FREE, rect)
+                pygame.draw.rect(screen, GRID_LINE, rect, 1)
 
-        # V5 — draw nests under everything else (so agents are on top)
+        # 2) food : cercle bordé en vert avec point clair central (plus lisible)
+        for r in range(env.cfg.rows):
+            for c in range(env.cfg.cols):
+                if not env.food_mask[r, c]:
+                    continue
+                x, y = c * cell_px, r * cell_px
+                cxc = x + cell_px // 2
+                cyc = y + cell_px // 2
+                food_r = max(3, cell_px // 3)
+                pygame.draw.circle(screen, FOOD_BG, (cxc, cyc), food_r)
+                pygame.draw.circle(screen, CELL_FOOD, (cxc, cyc), food_r, 2)
+                pygame.draw.circle(screen, FOOD_DOT, (cxc, cyc), max(1, food_r // 3))
+
+        # 3) V5/V5.3 — draw nests as HOUSES (toit triangulaire + corps)
         if show_nests:
-            # V5.3 — get cache info if available
             cache_stock = getattr(env, "nest_food_stock", {})
             cache_capacity = (
                 env.cfg.cache.max_capacity
@@ -282,46 +310,64 @@ def run_gui_v3(
                 nx = nc * cell_px
                 ny = nr * cell_px
                 nest_color = AGENT_COLORS[nest.owner_id % len(AGENT_COLORS)]
-                nest_surf = pygame.Surface((cell_px, cell_px), pygame.SRCALPHA)
-                # Fond coloré semi-transparent
+                roof_color = (
+                    min(255, nest_color[0] + 30),
+                    min(255, nest_color[1] + 30),
+                    min(255, nest_color[2] + 30),
+                )
+                # Corps de la maison (carré inférieur)
+                body_h = int(cell_px * 0.65)
+                body_y = ny + cell_px - body_h - 1
+                body_rect = pygame.Rect(nx + 2, body_y, cell_px - 4, body_h)
+                pygame.draw.rect(screen, nest_color, body_rect)
+                pygame.draw.rect(screen, (20, 20, 20), body_rect, 2)
+                # Toit triangulaire
+                roof_y_top = ny + 1
+                roof_y_base = body_y
+                roof_pts = [
+                    (nx + 1, roof_y_base),
+                    (nx + cell_px - 1, roof_y_base),
+                    (nx + cell_px // 2, roof_y_top),
+                ]
+                pygame.draw.polygon(screen, roof_color, roof_pts)
+                pygame.draw.polygon(screen, (20, 20, 20), roof_pts, 2)
+                # Porte (rectangle sombre au centre du corps)
+                door_w = max(2, cell_px // 6)
+                door_h = max(3, body_h // 2)
+                door_x = nx + cell_px // 2 - door_w // 2
+                door_y = body_y + body_h - door_h - 1
                 pygame.draw.rect(
-                    nest_surf, (*nest_color, NEST_ALPHA),
-                    nest_surf.get_rect(),
+                    screen, (30, 30, 35),
+                    pygame.Rect(door_x, door_y, door_w, door_h),
                 )
-                # Bordure pleine
-                pygame.draw.rect(
-                    nest_surf, (*nest_color, NEST_BORDER_ALPHA),
-                    nest_surf.get_rect(), 2,
-                )
-                # Petite croix au centre (signature "nid")
-                cxc = cell_px // 2
-                cross_h = max(2, cell_px // 3)
-                pygame.draw.line(
-                    nest_surf, (255, 255, 255, NEST_BORDER_ALPHA),
-                    (cxc - cross_h // 2, cxc), (cxc + cross_h // 2, cxc), 2,
-                )
-                pygame.draw.line(
-                    nest_surf, (255, 255, 255, NEST_BORDER_ALPHA),
-                    (cxc, cxc - cross_h // 2), (cxc, cxc + cross_h // 2), 2,
-                )
-                # V5.3 — barre de remplissage du cache à droite du nid
+                # V5.3 — barre cache à droite (silo)
                 stock = cache_stock.get(nest.owner_id, 0)
-                if stock > 0 and cache_capacity > 0:
+                if cache_capacity > 0 and cache_capacity > 1:
                     fill_frac = min(1.0, stock / cache_capacity)
-                    bar_w = max(2, cell_px // 8)
-                    bar_h = int((cell_px - 4) * fill_frac)
-                    bar_x = cell_px - bar_w - 2
-                    bar_y = (cell_px - 2) - bar_h
-                    # Couleur verte saturée selon le remplissage
+                    bar_w = max(3, cell_px // 6)
+                    bar_h_max = body_h - 2
+                    bar_x = nx + cell_px - bar_w - 1
+                    bar_y_bottom = body_y + body_h - 1
+                    # Silo vide
                     pygame.draw.rect(
-                        nest_surf, (90, 220, 90, 230),
-                        pygame.Rect(bar_x, bar_y, bar_w, bar_h),
+                        screen, CACHE_BAR_EMPTY_COLOR,
+                        pygame.Rect(bar_x, body_y, bar_w, bar_h_max),
                     )
-                screen.blit(nest_surf, (nx, ny))
-                # Build flash (anneau qui s'étend autour du nid)
+                    # Remplissage
+                    fill_h = int(bar_h_max * fill_frac)
+                    if fill_h > 0:
+                        pygame.draw.rect(
+                            screen, CACHE_BAR_COLOR,
+                            pygame.Rect(bar_x, bar_y_bottom - fill_h, bar_w, fill_h),
+                        )
+                    pygame.draw.rect(
+                        screen, (20, 20, 20),
+                        pygame.Rect(bar_x, body_y, bar_w, bar_h_max), 1,
+                    )
+                # Build flash (anneau qui s'étend autour de la maison)
                 if build_flash_frames.get(nest.owner_id, 0) > 0:
                     bprog = 1.0 - (build_flash_frames[nest.owner_id] / BUILD_FLASH_FRAMES)
-                    bflash_r = int(cell_px * (0.6 + 0.5 * bprog))
+                    bflash_r = int(cell_px * (0.6 + 0.6 * bprog))
                     bflash_alpha = int(220 * (1 - bprog))
                     bfsurf = pygame.Surface(
                         (bflash_r * 2 + 2, bflash_r * 2 + 2), pygame.SRCALPHA
@@ -332,7 +378,8 @@ def run_gui_v3(
                     )
                     screen.blit(
                         bfsurf,
-                        (nx + cxc - bflash_r - 1, ny + cxc - bflash_r - 1),
+                        (nx + cell_px // 2 - bflash_r - 1,
+                         ny + cell_px // 2 - bflash_r - 1),
                     )
                     build_flash_frames[nest.owner_id] -= 1
 
@@ -368,6 +415,16 @@ def run_gui_v3(
             if not a.alive:
                 pygame.draw.circle(screen, AGENT_DEAD, (cx, cy), radius)
                 pygame.draw.circle(screen, (50, 30, 30), (cx, cy), radius, 1)
+                # croix rouge sur les morts (plus lisible)
+                rr = max(2, radius - 1)
+                pygame.draw.line(
+                    screen, (200, 80, 80),
+                    (cx - rr, cy - rr), (cx + rr, cy + rr), 2,
+                )
+                pygame.draw.line(
+                    screen, (200, 80, 80),
+                    (cx - rr, cy + rr), (cx + rr, cy - rr), 2,
+                )
                 continue
             base_color = AGENT_COLORS[a.agent_id % len(AGENT_COLORS)]
             # Age tint : mix vers gris à mesure que l'agent vieillit
@@ -428,7 +485,97 @@ def run_gui_v3(
                 )
                 pygame.draw.circle(screen, inner_color, (cx, cy), inner_r)
 
-        # ─── HUD ───────────────────────────────────────────────────────────
+        # ─── Légende latérale (à droite de la grille) ────────────────────
+        legend_x0 = grid_w + 12
+        legend_panel = pygame.Rect(grid_w, 0, LEGEND_W, env.cfg.rows * cell_px)
+        pygame.draw.rect(screen, HUD_PANEL, legend_panel)
+        pygame.draw.line(screen, GRID_LINE, (grid_w, 0),
+                         (grid_w, env.cfg.rows * cell_px), 1)
+        ly = 14
+        screen.blit(font_lg.render("Legend", True, HUD_FG), (legend_x0, ly))
+        ly += 26
+        # food icon
+        pygame.draw.circle(screen, FOOD_BG, (legend_x0 + 12, ly + 6), 7)
+        pygame.draw.circle(screen, CELL_FOOD, (legend_x0 + 12, ly + 6), 7, 2)
+        pygame.draw.circle(screen, FOOD_DOT, (legend_x0 + 12, ly + 6), 3)
+        screen.blit(font_sm.render("food", True, HUD_FG), (legend_x0 + 28, ly + 1))
+        ly += 22
+        # nest icon (mini maison)
+        nest_color_demo = AGENT_COLORS[0]
+        pygame.draw.rect(screen, nest_color_demo,
+                         pygame.Rect(legend_x0 + 4, ly + 6, 16, 10))
+        pygame.draw.rect(screen, (20, 20, 20),
+                         pygame.Rect(legend_x0 + 4, ly + 6, 16, 10), 1)
+        pygame.draw.polygon(screen, (255, 215, 100),
+                            [(legend_x0 + 4, ly + 6),
+                             (legend_x0 + 20, ly + 6),
+                             (legend_x0 + 12, ly - 1)])
+        pygame.draw.polygon(screen, (20, 20, 20),
+                            [(legend_x0 + 4, ly + 6),
+                             (legend_x0 + 20, ly + 6),
+                             (legend_x0 + 12, ly - 1)], 1)
+        screen.blit(font_sm.render("nest (couleur=owner)", True, HUD_FG),
+                    (legend_x0 + 28, ly + 1))
+        ly += 24
+        # cache silo
+        pygame.draw.rect(screen, CACHE_BAR_EMPTY_COLOR,
+                         pygame.Rect(legend_x0 + 4, ly + 1, 5, 14))
+        pygame.draw.rect(screen, CACHE_BAR_COLOR,
+                         pygame.Rect(legend_x0 + 4, ly + 6, 5, 9))
+        pygame.draw.rect(screen, (20, 20, 20),
+                         pygame.Rect(legend_x0 + 4, ly + 1, 5, 14), 1)
+        screen.blit(font_sm.render("silo cache (V5.3)", True, HUD_FG),
+                    (legend_x0 + 18, ly + 1))
+        ly += 22
+        # agent vivant
+        pygame.draw.circle(screen, AGENT_COLORS[1], (legend_x0 + 12, ly + 6), 7)
+        pygame.draw.circle(screen, (255, 255, 255), (legend_x0 + 12, ly + 6), 7, 1)
+        screen.blit(font_sm.render("agent vivant", True, HUD_FG),
+                    (legend_x0 + 28, ly + 1))
+        ly += 22
+        # agent mort
+        pygame.draw.circle(screen, AGENT_DEAD, (legend_x0 + 12, ly + 6), 7)
+        pygame.draw.line(screen, (200, 80, 80),
+                         (legend_x0 + 6, ly), (legend_x0 + 18, ly + 12), 2)
+        screen.blit(font_sm.render("agent mort", True, HUD_FG),
+                    (legend_x0 + 28, ly + 1))
+        ly += 22
+        # birth flash
+        pygame.draw.circle(screen, BIRTH_FLASH_COLOR, (legend_x0 + 12, ly + 6), 7, 2)
+        screen.blit(font_sm.render("naissance (flash bleu)", True, HUD_FG),
+                    (legend_x0 + 28, ly + 1))
+        ly += 22
+        # eat flash
+        pygame.draw.circle(screen, (255, 255, 200), (legend_x0 + 12, ly + 6), 7, 2)
+        screen.blit(font_sm.render("eat (flash jaune)", True, HUD_FG),
+                    (legend_x0 + 28, ly + 1))
+        ly += 22
+        # build flash
+        pygame.draw.circle(screen, BUILD_FLASH_COLOR, (legend_x0 + 12, ly + 6), 7, 2)
+        screen.blit(font_sm.render("construit (flash orange)", True, HUD_FG),
+                    (legend_x0 + 28, ly + 1))
+        ly += 28
+        # Modes activés (live status)
+        screen.blit(font_md.render("Modes actifs :", True, HUD_FG), (legend_x0, ly))
+        ly += 18
+        rcfg = env.cfg.reproduction
+        bcfg = env.cfg.build
+        ccfg = env.cfg.cache
+        for label, active in [
+            ("Reproduction", rcfg.enabled),
+            ("Construction", bcfg.enabled),
+            ("Family inherit.", bcfg.family_inheritance),
+            ("Cache food", ccfg.enabled),
+            ("Heatmap temp.", show_temp),
+            ("Trails", show_trails),
+        ]:
+            color = HUD_GREEN if active else HUD_DIM
+            mark = "[ON]" if active else "[off]"
+            screen.blit(font_sm.render(f"{mark:5s} {label}", True, color),
+                        (legend_x0 + 4, ly))
+            ly += 15
+
+        # ─── HUD bas ──────────────────────────────────────────────────────
         hud_y0 = env.cfg.rows * cell_px
         pygame.draw.rect(screen, HUD_PANEL, pygame.Rect(0, hud_y0, width, hud_h))
 
@@ -448,9 +595,12 @@ def run_gui_v3(
             f"season={season_name:6s}  phase={env.phase:5.2f}  "
             f"next-in={ticks_to_next:3d}t  step={env.step_count:4d}/{env.cfg.max_steps}"
         )
+        n_alive_disp = env.n_alive
+        n_nests = env.n_nests
+        cache_total = getattr(env, "total_cached_food", 0.0)
         line2 = (
-            f"alive={env.n_alive:3d}/{total_pop:<3d}  births={env.n_births_total:3d}  "
-            f"nests={env.n_nests:3d}  food={env.food_count:4d}  ep#{episode_idx}"
+            f"alive={n_alive_disp:3d}/{total_pop:<3d}  births={env.n_births_total:3d}  "
+            f"nests={n_nests:3d}  cache={cache_total:5.0f}  food={env.food_count:4d}"
         )
         line3 = f"last: {last_outcome}"
         line4 = "Mean food regen factors per season:"
@@ -471,10 +621,10 @@ def run_gui_v3(
         screen.blit(font_sm.render(line5, True, HUD_DIM), (12, hud_y0 + 80))
         screen.blit(font_sm.render(controls, True, HUD_DIM), (12, hud_y0 + 110))
 
-        # V4 — courbe population mini-graph en haut à droite du grid
+        # V4 — courbe population mini-graph en haut à gauche du grid
         if len(pop_curve) > 1:
-            curve_w = min(180, width - 24)
-            curve_x0 = width - curve_w - 10
+            curve_w = min(180, grid_w - 24)
+            curve_x0 = 10
             curve_y0 = 10
             pts = list(pop_curve)
             max_pop_observed = max(max(pts), env.cfg.n_agents)
