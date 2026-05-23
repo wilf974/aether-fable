@@ -18,6 +18,7 @@ import argparse
 from aetherlife.viz.pygame_viewer_v3 import run_gui_v3
 from aetherlife.world.cache import CacheConfig
 from aetherlife.world.construction import BuildConfig
+from aetherlife.world.planting import PlantingConfig
 from aetherlife.world.reproduction import ReproductionConfig
 from aetherlife.world.seasonal_grid import SeasonalConfig, SeasonalMultiAgentConfig
 
@@ -112,19 +113,35 @@ MODE_PRESETS: dict[str, dict] = {
         max_steps=3000,
     ),
     # V5.3 — mode prosper : tribe + caches food (stockage inter-temporel)
+    # V5.6 recalibré : généreux pour rendre les comportements bien visibles
     "prosper": dict(
-        metabolism=0.5,
-        food_value=14.0,
-        start_energy=100.0,
-        max_energy=200.0,
+        metabolism=0.4,
+        food_value=15.0,
+        start_energy=110.0,
+        max_energy=180.0,
         death_penalty=5.0,
-        initial_food_density=0.08,
-        food_respawn_lambda=1.8,
-        winter_factor=0.3,  # hiver plus dur → cache devient utile
+        initial_food_density=0.12,
+        food_respawn_lambda=2.8,
+        winter_factor=0.5,
         summer_factor=1.3,
         spring_factor=2.0,
-        autumn_factor=1.2,
+        autumn_factor=1.3,
         max_steps=3000,
+    ),
+    # V6 — mode garden : prosper + plantation (système agricole complet)
+    "garden": dict(
+        metabolism=0.4,
+        food_value=15.0,
+        start_energy=120.0,
+        max_energy=200.0,
+        death_penalty=5.0,
+        initial_food_density=0.08,        # un peu moins de food naturel
+        food_respawn_lambda=1.5,           # pour incentiver la plantation
+        winter_factor=0.4,
+        summer_factor=1.2,
+        spring_factor=1.8,
+        autumn_factor=1.2,
+        max_steps=4000,
     ),
 }
 
@@ -167,19 +184,20 @@ def main() -> None:
         choices=["on", "off"],
         help="Force reproduction on/off (default: auto, on si --mode evolve)",
     )
-    parser.add_argument("--repro-threshold", type=float, default=80.0)
-    parser.add_argument("--repro-cost", type=float, default=40.0)
-    parser.add_argument("--repro-cooldown", type=int, default=30)
-    parser.add_argument("--repro-max-pop", type=int, default=80)
+    # V5.6 — seuils plus accessibles pour comportements visibles
+    parser.add_argument("--repro-threshold", type=float, default=70.0)
+    parser.add_argument("--repro-cost", type=float, default=35.0)
+    parser.add_argument("--repro-cooldown", type=int, default=20)
+    parser.add_argument("--repro-max-pop", type=int, default=60)
     # V5 construction (activée seulement en mode 'civ' par défaut)
     parser.add_argument(
         "--build", type=str, default=None, choices=["on", "off"],
         help="Force construction on/off (default: on si --mode civ)",
     )
-    parser.add_argument("--build-threshold", type=float, default=90.0)
-    parser.add_argument("--build-cost", type=float, default=25.0)
-    parser.add_argument("--build-rest-bonus", type=float, default=3.0)
-    parser.add_argument("--build-cooldown", type=int, default=50)
+    parser.add_argument("--build-threshold", type=float, default=70.0)
+    parser.add_argument("--build-cost", type=float, default=20.0)
+    parser.add_argument("--build-rest-bonus", type=float, default=4.0)
+    parser.add_argument("--build-cooldown", type=int, default=30)
     parser.add_argument(
         "--family", type=lambda x: x.lower() == "on" if x else None,
         default=None,
@@ -194,6 +212,15 @@ def main() -> None:
     parser.add_argument("--cache-capacity", type=float, default=80.0)
     parser.add_argument("--cache-deposit-amount", type=float, default=4.0)
     parser.add_argument("--cache-withdrawal-amount", type=float, default=4.0)
+    # V6 plantation (activée seulement en mode 'garden' par défaut)
+    parser.add_argument(
+        "--planting", type=str, default=None, choices=["on", "off"],
+        help="Force plantation on/off (default: on si --mode garden)",
+    )
+    parser.add_argument("--plant-threshold", type=float, default=100.0)
+    parser.add_argument("--plant-cost", type=float, default=12.0)
+    parser.add_argument("--plant-growth-ticks", type=int, default=40)
+    parser.add_argument("--plant-cooldown", type=int, default=25)
     args = parser.parse_args()
 
     preset = MODE_PRESETS[args.mode]
@@ -263,6 +290,20 @@ def main() -> None:
         withdrawal_amount=args.cache_withdrawal_amount,
     )
 
+    # V6 plantation : auto-on en mode garden uniquement
+    if args.planting is None:
+        plant_enabled = args.mode == "garden"
+    else:
+        plant_enabled = args.planting == "on"
+
+    planting = PlantingConfig(
+        enabled=plant_enabled,
+        energy_threshold=args.plant_threshold,
+        energy_cost=args.plant_cost,
+        growth_ticks=args.plant_growth_ticks,
+        cooldown_ticks=args.plant_cooldown,
+    )
+
     cfg = SeasonalMultiAgentConfig(
         rows=args.rows, cols=args.cols, n_agents=args.n_agents,
         max_energy=pick("max_energy"),
@@ -277,6 +318,7 @@ def main() -> None:
         reproduction=repro,
         build=build,
         cache=cache,
+        planting=planting,
     )
 
     print(
@@ -292,6 +334,8 @@ def main() -> None:
         f"family_inheritance={build.family_inheritance}\n"
         f"  cache={cache.enabled}  deposit>={cache.deposit_threshold}  "
         f"withdraw<{cache.withdrawal_threshold}  cap={cache.max_capacity}\n"
+        f"  planting={planting.enabled}  threshold={planting.energy_threshold}  "
+        f"cost={planting.energy_cost}  growth={planting.growth_ticks}t\n"
     )
 
     run_gui_v3(cfg, cell_px=args.cell_px, tick_delay_ms=args.tick_delay_ms, seed=args.seed)

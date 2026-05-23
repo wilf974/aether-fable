@@ -65,6 +65,7 @@ class SmartHeuristicAgent:
         )
         food_positions = self._food_positions()
         nest_lookup = env.nests if hasattr(env, "nests") else {}
+        nest_pos_set = {n.pos for n in nest_lookup.values()} if nest_lookup else set()
 
         for aid in obs_dict:
             try:
@@ -101,17 +102,30 @@ class SmartHeuristicAgent:
 
             # 2. Surplus + pas de nid → construire (rester sur place libre)
             if energy >= build_threshold and own_nest is None:
-                # Si la cellule courante a food, bouger à une cellule libre
-                # adjacente pour que la prochaine reproduction/build puisse
-                # avoir lieu sur cellule libre.
                 if env.food_mask[ar, ac]:
-                    # Manger d'abord ; on revient construire après
                     actions[aid] = self._random_walk(aid, ar, ac)
                 else:
-                    # Rester ici : NORTH si row>0 ou SOUTH selon clamp
                     actions[aid] = self._idle_action(ar, ac)
                 self._prev_pos[aid] = (ar, ac)
                 continue
+
+            # V6 — Surplus + plantation possible : plante au lieu de chercher food
+            pcfg = getattr(env.cfg, "planting", None)
+            can_plant = (
+                pcfg is not None and pcfg.enabled
+                and energy >= pcfg.energy_threshold
+            )
+            if can_plant and own_nest is not None:
+                # Si la cellule courante est plantable, idle (rester pour planter)
+                plants = getattr(env, "plants", {})
+                if (
+                    not env.food_mask[ar, ac]
+                    and (ar, ac) not in plants
+                    and (ar, ac) not in nest_pos_set
+                ):
+                    actions[aid] = self._idle_action(ar, ac)
+                    self._prev_pos[aid] = (ar, ac)
+                    continue
 
             # 3. Surplus ET nid existe → aller au nid (rest + déposer cache)
             if energy >= comfortable and own_nest is not None:

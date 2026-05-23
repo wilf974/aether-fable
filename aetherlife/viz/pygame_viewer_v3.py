@@ -34,17 +34,20 @@ from aetherlife.world.seasonal_grid import (
 
 # ─── viz config (V5.4 — refonte lisibilité) ──────────────────────────────
 TRAIL_LEN = 12
-EAT_FLASH_FRAMES = 10
+# V5.6 — flashes beaucoup plus longs pour visibilité
+EAT_FLASH_FRAMES = 12
 AGE_GRAY = (190, 190, 195)
 MAX_AGE_MIX = 0.45
 HALO_EXTRA = 4
-BIRTH_FLASH_FRAMES = 20
+BIRTH_FLASH_FRAMES = 45            # +125 % pour bien voir les naissances
 BIRTH_FLASH_COLOR = (120, 200, 255)
 POP_CURVE_SAMPLES = 200
 POP_CURVE_H = 50
 # V5 — construction (nid en maison stylisée)
-BUILD_FLASH_FRAMES = 15
+BUILD_FLASH_FRAMES = 40            # +166 % pour bien voir les constructions
 BUILD_FLASH_COLOR = (255, 200, 100)
+# V5.6 — event log
+EVENT_LOG_MAXLEN = 6
 NEST_BASE_ALPHA = 240           # nids beaucoup plus opaques qu'avant
 NEST_ROOF_ALPHA = 255
 # V5.3 — cache viz
@@ -134,8 +137,8 @@ def run_gui_v3(
     *,
     n_choices: tuple[int, ...] = (2, 4, 8, 16, 32, 64),
     cell_px: int = 24,           # plus grand par défaut (était 18)
-    hud_h: int = 150,
-    tick_delay_ms: int = 60,
+    hud_h: int = 180,             # +30 px pour le panneau events
+    tick_delay_ms: int = 100,    # plus lent (60 → 100) pour visibilité
     seed: int = 0,
     show_temp_heatmap: bool = False,   # désactivé par défaut (toggle T)
 ) -> None:
@@ -200,6 +203,8 @@ def run_gui_v3(
     pop_curve.append(env.n_alive)
     show_trails = True
     show_nests = True
+    # V5.6 — event log
+    event_log: deque = deque(maxlen=EVENT_LOG_MAXLEN)
 
     def reset_episode(new_seed: int | None = None) -> None:
         nonlocal obs_dict, tracker, showing_report, trails, eat_flash_frames
@@ -289,9 +294,40 @@ def run_gui_v3(
             for child_id in env.births_last_step:
                 birth_flash_frames[child_id] = BIRTH_FLASH_FRAMES
                 trails.setdefault(child_id, deque(maxlen=TRAIL_LEN))
+                # V5.6 — log birth
+                try:
+                    parent = next(
+                        (a for a in env._agents if a.agent_id == child_id),  # noqa: SLF001
+                        None,
+                    )
+                    parent_id = parent.parent_id if parent else "?"
+                except Exception:
+                    parent_id = "?"
+                event_log.append((
+                    f"t{env.step_count}", "BIRTH", f"#{child_id}<-#{parent_id}",
+                    BIRTH_FLASH_COLOR,
+                ))
             # V5 — flash sur les nids fraîchement construits
             for nest in env.builds_last_step:
                 build_flash_frames[nest.owner_id] = BUILD_FLASH_FRAMES
+                event_log.append((
+                    f"t{env.step_count}", "BUILD", f"#{nest.owner_id}@({nest.pos[0]},{nest.pos[1]})",
+                    BUILD_FLASH_COLOR,
+                ))
+            # V5.6 — log deaths
+            for aid in list(env.alive_agent_ids):
+                pass
+            # Detect deaths via change in n_alive
+            current_dead_ids = {
+                a.agent_id for a in env._agents if not a.alive  # noqa: SLF001
+            }
+            new_deaths = current_dead_ids - getattr(env, "_prev_dead_ids", set())
+            env._prev_dead_ids = current_dead_ids  # noqa: SLF001
+            for did in new_deaths:
+                event_log.append((
+                    f"t{env.step_count}", "DEATH ", f"#{did}",
+                    (220, 100, 100),
+                ))
             # V4 — sample pop curve
             pop_curve.append(env.n_alive)
             obs_dict = {aid: o for aid, o in next_obs.items() if env.agent_state(aid).alive}
@@ -338,6 +374,36 @@ def run_gui_v3(
                 pygame.draw.circle(screen, FOOD_BG, (cxc, cyc), food_r)
                 pygame.draw.circle(screen, CELL_FOOD, (cxc, cyc), food_r, 2)
                 pygame.draw.circle(screen, FOOD_DOT, (cxc, cyc), max(1, food_r // 3))
+
+        # 2bis) V6 — plants in growth : taille proportionnelle au stade
+        plants_dict = getattr(env, "plants", {})
+        if plants_dict:
+            current_tick = env.step_count
+            for (pr, pc), plant in plants_dict.items():
+                prog = plant.progress(current_tick)
+                x, y = pc * cell_px, pr * cell_px
+                cxc = x + cell_px // 2
+                cyc = y + cell_px // 2
+                # Stem (tige) verte qui grandit
+                stem_max_h = cell_px - 6
+                stem_h = max(2, int(stem_max_h * prog))
+                stem_color = (
+                    int(100 + 60 * prog),  # plus mûr = plus jaune
+                    int(180 + 50 * prog),
+                    50,
+                )
+                pygame.draw.rect(
+                    screen, stem_color,
+                    pygame.Rect(cxc - 1, cyc + cell_px // 2 - 3 - stem_h, 2, stem_h),
+                )
+                # Tête plante : cercle qui grossit
+                head_r = max(2, int((cell_px // 5) * prog))
+                if head_r >= 2:
+                    pygame.draw.circle(
+                        screen, stem_color,
+                        (cxc, cyc + cell_px // 2 - 3 - stem_h),
+                        head_r,
+                    )
 
         # 3) V5/V5.3 — draw nests as HOUSES (toit triangulaire + corps)
         if show_nests:
@@ -618,11 +684,14 @@ def run_gui_v3(
         rcfg = env.cfg.reproduction
         bcfg = env.cfg.build
         ccfg = env.cfg.cache
+        pcfg = getattr(env.cfg, "planting", None)
+        plant_on = pcfg.enabled if pcfg else False
         for label, active in [
             ("Reproduction", rcfg.enabled),
             ("Construction", bcfg.enabled),
             ("Family inherit.", bcfg.family_inheritance),
             ("Cache food", ccfg.enabled),
+            ("Plantation V6", plant_on),
             ("Heatmap temp.", show_temp),
             ("Trails", show_trails),
         ]:
@@ -655,9 +724,12 @@ def run_gui_v3(
         n_alive_disp = env.n_alive
         n_nests = env.n_nests
         cache_total = getattr(env, "total_cached_food", 0.0)
+        n_plants = getattr(env, "n_plants", 0)
+        n_matured = getattr(env, "plants_matured_total", 0)
         line2 = (
             f"alive={n_alive_disp:3d}/{total_pop:<3d}  births={env.n_births_total:3d}  "
-            f"nests={n_nests:3d}  cache={cache_total:5.0f}  food={env.food_count:4d}"
+            f"nests={n_nests:3d}  plants={n_plants:3d}(matured={n_matured:3d})  "
+            f"cache={cache_total:4.0f}  food={env.food_count:4d}"
         )
         line3 = f"last: {last_outcome}"
         line4 = "Mean food regen factors per season:"
@@ -678,6 +750,17 @@ def run_gui_v3(
         screen.blit(font_sm.render(line3, True, outcome_color), (12, hud_y0 + 50))
         screen.blit(font_sm.render(line5, True, HUD_DIM), (12, hud_y0 + 80))
         screen.blit(font_sm.render(controls, True, HUD_DIM), (12, hud_y0 + 110))
+
+        # V5.6 — Event log panel (right side of HUD)
+        event_x0 = grid_w - 280
+        screen.blit(font_md.render("Recent events:", True, HUD_FG),
+                    (event_x0, hud_y0 + 8))
+        for i, (ts, kind, detail, color) in enumerate(list(event_log)):
+            y = hud_y0 + 28 + i * 16
+            screen.blit(
+                font_sm.render(f"{ts:6s} {kind:6s} {detail}", True, color),
+                (event_x0, y),
+            )
 
         # V4 — courbe population mini-graph en haut à gauche du grid
         if len(pop_curve) > 1:

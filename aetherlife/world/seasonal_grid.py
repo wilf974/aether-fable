@@ -39,6 +39,7 @@ from aetherlife.world.cache import CacheConfig
 from aetherlife.world.construction import BuildConfig, NestRecord
 from aetherlife.world.food_grid import Action, _DELTAS
 from aetherlife.world.multi_agent_grid import _AgentState
+from aetherlife.world.planting import PlantingConfig, PlantRecord
 from aetherlife.world.reproduction import LineageEdge, ReproductionConfig
 
 
@@ -108,6 +109,7 @@ class SeasonalMultiAgentConfig:
     reproduction: ReproductionConfig = ReproductionConfig()
     build: BuildConfig = BuildConfig()
     cache: CacheConfig = CacheConfig()
+    planting: PlantingConfig = PlantingConfig()
 
     def __post_init__(self) -> None:
         if self.rows <= 0 or self.cols <= 0:
@@ -219,6 +221,11 @@ class SeasonalMultiAgentFoodGrid:
         self._cache_withdrawals_total: int = 0
         self._cache_energy_deposited_total: float = 0.0
         self._cache_energy_withdrawn_total: float = 0.0
+        # V6 — plantation
+        self._plants: dict[tuple[int, int], PlantRecord] = {}
+        self._plants_planted_total: int = 0
+        self._plants_matured_total: int = 0
+        self._last_plant_tick: dict[int, int] = {}
 
     @property
     def n_actions(self) -> int:
@@ -332,6 +339,42 @@ class SeasonalMultiAgentFoodGrid:
     def cache_energy_withdrawn_total(self) -> float:
         return self._cache_energy_withdrawn_total
 
+    # V6 — plantation
+    @property
+    def plants(self) -> dict[tuple[int, int], PlantRecord]:
+        return dict(self._plants)
+
+    @property
+    def n_plants(self) -> int:
+        return len(self._plants)
+
+    @property
+    def plants_planted_total(self) -> int:
+        return self._plants_planted_total
+
+    @property
+    def plants_matured_total(self) -> int:
+        return self._plants_matured_total
+
+    def can_plant_at(self, agent: _AgentState) -> bool:
+        """V6 — vérifie si l'agent peut planter à sa position actuelle."""
+        pcfg = self.cfg.planting
+        if not pcfg.enabled or not agent.alive:
+            return False
+        if agent.energy < pcfg.energy_threshold:
+            return False
+        last = self._last_plant_tick.get(agent.agent_id, -10**9)
+        if self._step_count - last < pcfg.cooldown_ticks:
+            return False
+        pos = agent.pos
+        if self._food_mask[pos[0], pos[1]]:
+            return False
+        if pos in self._plants:
+            return False
+        if pos in self.nest_positions:
+            return False
+        return True
+
     def root_ancestor_of(self, agent_id: int) -> int:
         return self.agent_state(agent_id).root_ancestor_id
 
@@ -407,6 +450,11 @@ class SeasonalMultiAgentFoodGrid:
         self._cache_withdrawals_total = 0
         self._cache_energy_deposited_total = 0.0
         self._cache_energy_withdrawn_total = 0.0
+        # V6 reset
+        self._plants = {}
+        self._plants_planted_total = 0
+        self._plants_matured_total = 0
+        self._last_plant_tick = {}
         self._initial_food_layout()
         self._refresh_temperature()
         return (
@@ -556,6 +604,11 @@ class SeasonalMultiAgentFoodGrid:
         if self.cfg.build.enabled:
             self._try_constructions()
 
+        # V6 — plantation automatique + croissance
+        if self.cfg.planting.enabled:
+            self._try_plantings()
+            self._update_plant_growth()
+
         # Refresh temperature pour le tick courant
         self._refresh_temperature()
         # Food respawn modulé par la saison (I11)
@@ -619,6 +672,34 @@ class SeasonalMultiAgentFoodGrid:
                     child_generation=child.generation,
                 )
             )
+
+    def _try_plantings(self) -> None:
+        """V6 — chaque agent éligible plante une graine sur sa cellule."""
+        pcfg = self.cfg.planting
+        for agent in self._agents:
+            if not self.can_plant_at(agent):
+                continue
+            agent.energy -= pcfg.energy_cost
+            self._last_plant_tick[agent.agent_id] = self._step_count
+            self._plants[agent.pos] = PlantRecord(
+                planter_id=agent.agent_id,
+                pos=agent.pos,
+                planted_tick=self._step_count,
+                matures_at_tick=self._step_count + pcfg.growth_ticks,
+            )
+            self._plants_planted_total += 1
+
+    def _update_plant_growth(self) -> None:
+        """V6 — convertit les plantes mûres en food cells."""
+        matured = []
+        for pos, plant in self._plants.items():
+            if plant.is_mature(self._step_count):
+                matured.append(pos)
+        for pos in matured:
+            r, c = pos
+            self._food_mask[r, c] = True
+            del self._plants[pos]
+            self._plants_matured_total += 1
 
     def _try_constructions(self) -> None:
         """V5 — construction auto pour env saisonnier (idem MultiAgentFoodGrid)."""
@@ -696,12 +777,14 @@ class SeasonalMultiAgentFoodGrid:
         free = []
         agent_positions = {a.pos for a in self._agents if a.alive}
         nest_pos = self.nest_positions
+        plant_pos = set(self._plants.keys())
         for r in range(self.cfg.rows):
             for c in range(self.cfg.cols):
                 if (
                     not self._food_mask[r, c]
                     and (r, c) not in agent_positions
                     and (r, c) not in nest_pos
+                    and (r, c) not in plant_pos
                 ):
                     free.append((r, c))
         if not free:
