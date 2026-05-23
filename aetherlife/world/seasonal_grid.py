@@ -418,3 +418,37 @@ class SeasonalMultiAgentFoodGrid:
             (local_temp - self.cfg.seasonal.temp_min) / span if span > 0 else 0.5
         )
         return obs
+
+    def observation_2d_for(self, agent_id: int) -> np.ndarray:
+        """Observation 2D (4, R, C) pour ConvDQN V2-W.
+
+        Canaux :
+            0 : self_position (1.0 sur la cellule de l'agent)
+            1 : others_positions (1.0 par cellule occupée par autre agent vivant)
+            2 : food_mask (1.0 si food)
+            3 : temperature_field normalisée [0, 1]
+        """
+        R, C = self.cfg.rows, self.cfg.cols
+        obs = np.zeros((4, R, C), dtype=np.float32)
+        agent = self._agents[agent_id]
+        if agent.alive:
+            sr, sc = agent.pos
+            obs[0, sr, sc] = 1.0
+        for other in self._agents:
+            if other.agent_id == agent_id or not other.alive:
+                continue
+            r, c = other.pos
+            obs[1, r, c] = 1.0
+        obs[2] = self._food_mask.astype(np.float32)
+        # Normalize temperature
+        span = self.cfg.seasonal.temp_max - self.cfg.seasonal.temp_min
+        if span > 0:
+            obs[3] = (self._temp_field - self.cfg.seasonal.temp_min) / span
+        else:
+            obs[3] = 0.5
+        return obs
+
+    @property
+    def obs_2d_shape(self) -> tuple[int, int, int]:
+        """Shape (channels, rows, cols) attendue par ConvDQNAgent."""
+        return (4, self.cfg.rows, self.cfg.cols)

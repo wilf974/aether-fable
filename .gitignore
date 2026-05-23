@@ -20,6 +20,7 @@ experiments/*/runs/
 benchmarks/results/*.parquet
 ruvector.db
 *.db
+checkpoints/*.pt
 
 # IDE
 .vscode/

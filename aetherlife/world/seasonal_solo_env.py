@@ -109,3 +109,11 @@ class SoloSeasonalEnv:
             bool(truncated.get(0, False)),
             infos.get(0, {}),
         )
+
+    def observation_2d(self) -> np.ndarray:
+        """Observation 2D (4, R, C) pour ConvDQN V2-W."""
+        return self._inner.observation_2d_for(0)
+
+    @property
+    def obs_2d_shape(self) -> tuple[int, int, int]:
+        return self._inner.obs_2d_shape
