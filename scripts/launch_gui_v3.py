@@ -16,7 +16,9 @@ from __future__ import annotations
 import argparse
 
 from aetherlife.viz.pygame_viewer_v3 import run_gui_v3
+from aetherlife.world.biomes import BiomeConfig
 from aetherlife.world.cache import CacheConfig
+from aetherlife.world.competition import CompetitionConfig
 from aetherlife.world.construction import BuildConfig
 from aetherlife.world.planting import PlantingConfig
 from aetherlife.world.reproduction import ReproductionConfig
@@ -141,9 +143,25 @@ MODE_PRESETS: dict[str, dict] = {
         food_respawn_lambda=0.15,          # quasi-zéro food gratuite
         winter_factor=0.6,                 # cycle modeste (pas de famine extrême)
         summer_factor=1.0,
-        spring_factor=1.4,
+        spring_factor=1.0,
         autumn_factor=0.8,
         max_steps=4000,
+    ),
+    # V8-B1.5 — mode niches : biomes + compétition locale + LineageDQN
+    # Objectif : coexistence de ≥3 lignées avec stratégies différentes
+    "niches": dict(
+        metabolism=0.35,
+        food_value=18.0,
+        start_energy=160.0,
+        max_energy=300.0,
+        death_penalty=5.0,
+        initial_food_density=0.06,
+        food_respawn_lambda=0.4,
+        winter_factor=0.5,
+        summer_factor=1.0,
+        spring_factor=1.4,
+        autumn_factor=0.8,
+        max_steps=200000,
     ),
 }
 
@@ -159,6 +177,7 @@ MODE_GRID_DEFAULTS: dict[str, tuple[int, int, int, int]] = {
     "tribe":   (32, 32, 20, 14),
     "prosper": (36, 36, 18, 14),
     "garden":  (40, 40, 18, 10),   # vaste territoire, peu d'agents (focus individuel)
+    "niches":  (60, 60, 12, 20),   # V8-B1.5 : vaste, biomes contigus, n_agents pour 4 niches
 }
 
 
@@ -178,6 +197,8 @@ MODE_REPRO_DEFAULTS: dict[str, tuple[float, float, int, int]] = {
     # cooldown 250 : ~2-3 reproductions par vie maximum
     # max_pop 16 : focus sur ~15 agents qu'on suit vraiment
     "garden":  (130.0, 70.0, 250, 16),
+    # niches : max_pop élevé (100), cooldown modéré pour brassage
+    "niches":  (130.0, 65.0, 80, 100),
 }
 
 
@@ -196,6 +217,7 @@ MODE_CACHE_DEFAULTS: dict[str, tuple[float, float, float, float, float]] = {
     "prosper": (170.0, 80.0, 100.0, 4.0, 4.0),
     # garden : deposit à 170 = AU-DESSUS de repro_threshold 130
     "garden":  (170.0, 70.0, 100.0, 5.0, 5.0),
+    "niches":  (170.0, 70.0, 100.0, 5.0, 5.0),
 }
 
 
@@ -210,6 +232,7 @@ MODE_BUILD_DEFAULTS: dict[str, tuple[float, float, int]] = {
     "tribe":   (90.0, 30.0, 50),
     "prosper": (110.0, 35.0, 70),
     "garden":  (130.0, 40.0, 100),   # build = vrai investissement
+    "niches":  (130.0, 40.0, 80),
 }
 
 
@@ -225,6 +248,7 @@ MODE_PLANT_DEFAULTS: dict[str, tuple[float, float, int, int]] = {
     "prosper": (100.0, 14.0, 70, 30),
     # garden : plantation = engagement à 5-7 sec d'attente, cycle vraiment long
     "garden":  (110.0, 15.0, 80, 40),
+    "niches":  (110.0, 15.0, 70, 35),
 }
 
 
@@ -313,6 +337,18 @@ def main() -> None:
     )
     parser.add_argument("--traits-mutation-std", type=float, default=0.08)
     parser.add_argument("--traits-initial-std", type=float, default=0.15)
+    # V8-B1.5 — biomes + compétition
+    parser.add_argument(
+        "--biomes", type=str, default=None, choices=["on", "off"],
+        help="Active biomes Voronoi (forest/plain/desert/tundra)",
+    )
+    parser.add_argument("--biome-seed-points", type=int, default=8)
+    parser.add_argument(
+        "--competition", type=str, default=None, choices=["on", "off"],
+        help="Active la compétition locale (metabolism modulé densité)",
+    )
+    parser.add_argument("--competition-radius", type=int, default=3)
+    parser.add_argument("--competition-per-neighbor", type=float, default=0.04)
     args = parser.parse_args()
 
     # V6.4 — defaults grid adaptés au mode si pas override CLI
@@ -398,9 +434,11 @@ def main() -> None:
         temp_max=args.temp_max,
     )
     # V6.3-fix2 — feature activation par mode (cumulatif)
-    # Reproduction : evolve, civ, tribe, prosper, garden
+    # Reproduction : evolve, civ, tribe, prosper, garden, niches
     if args.reproduction is None:
-        repro_enabled = args.mode in ("evolve", "civ", "tribe", "prosper", "garden")
+        repro_enabled = args.mode in (
+            "evolve", "civ", "tribe", "prosper", "garden", "niches",
+        )
     else:
         repro_enabled = args.reproduction == "on"
 
@@ -412,21 +450,23 @@ def main() -> None:
         max_population=args.repro_max_pop,
     )
 
-    # V5 construction : auto-on en civ, tribe, prosper, garden
+    # V5 construction : auto-on en civ, tribe, prosper, garden, niches
     if args.build is None:
-        build_enabled = args.mode in ("civ", "tribe", "prosper", "garden")
+        build_enabled = args.mode in (
+            "civ", "tribe", "prosper", "garden", "niches",
+        )
     else:
         build_enabled = args.build == "on"
 
-    # V5.2 family inheritance : tribe, prosper, garden
+    # V5.2 family inheritance : tribe, prosper, garden, niches
     family_inheritance = (
         args.family if args.family is not None
-        else args.mode in ("tribe", "prosper", "garden")
+        else args.mode in ("tribe", "prosper", "garden", "niches")
     )
 
-    # V5.3 caches : prosper, garden
+    # V5.3 caches : prosper, garden, niches
     if args.cache is None:
-        cache_enabled = args.mode in ("prosper", "garden")
+        cache_enabled = args.mode in ("prosper", "garden", "niches")
     else:
         cache_enabled = args.cache == "on"
 
@@ -450,7 +490,7 @@ def main() -> None:
 
     # V6 plantation : auto-on en mode garden uniquement
     if args.planting is None:
-        plant_enabled = args.mode == "garden"
+        plant_enabled = args.mode in ("garden", "niches")
     else:
         plant_enabled = args.planting == "on"
 
@@ -468,7 +508,7 @@ def main() -> None:
     # V7 — traits auto-on dès qu'il y a reproduction (sinon pas d'héritage à observer)
     if args.traits is None:
         traits_enabled = args.mode in (
-            "evolve", "civ", "tribe", "prosper", "garden"
+            "evolve", "civ", "tribe", "prosper", "garden", "niches"
         )
     else:
         traits_enabled = args.traits == "on"
@@ -476,6 +516,27 @@ def main() -> None:
         enabled=traits_enabled,
         mutation_std=args.traits_mutation_std,
         initial_std=args.traits_initial_std,
+    )
+
+    # V8-B1.5 — biomes auto-on en niches/garden, sinon off
+    if args.biomes is None:
+        biomes_enabled = args.mode in ("niches", "garden")
+    else:
+        biomes_enabled = args.biomes == "on"
+    biomes = BiomeConfig(
+        enabled=biomes_enabled,
+        n_seed_points=args.biome_seed_points,
+    )
+
+    # V8-B1.5 — compétition auto-on en niches, sinon off
+    if args.competition is None:
+        competition_enabled = args.mode == "niches"
+    else:
+        competition_enabled = args.competition == "on"
+    competition = CompetitionConfig(
+        enabled=competition_enabled,
+        radius=args.competition_radius,
+        metabolism_per_neighbor=args.competition_per_neighbor,
     )
 
     cfg = SeasonalMultiAgentConfig(
@@ -494,6 +555,8 @@ def main() -> None:
         cache=cache,
         planting=planting,
         traits=traits,
+        biomes=biomes,
+        competition=competition,
     )
 
     print(

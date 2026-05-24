@@ -32,24 +32,34 @@ def egocentric_obs(env, agent, vision_radius: int = 5) -> np.ndarray:
 
     Args:
         env: SeasonalMultiAgentFoodGrid (a `food_mask`, `nests`, `plants`,
-             `_agents`, `phase`, `cfg.max_energy`).
+             `_agents`, `phase`, `cfg.max_energy`, `biome_map` V8-B1.5).
         agent: _AgentState (a `pos`, `energy`, `age_norm` calculé ici).
         vision_radius: rayon de vision (fenêtre carrée 2r+1).
 
     Returns:
-        np.ndarray float32 shape (4 * (2r+1)² + 3,)
+        np.ndarray float32 shape (5 * (2r+1)² + 3,)
+
+    Canaux :
+        0: food
+        1: nests
+        2: plants
+        3: agents (autres)
+        4: biome (encoding [0, 0.33, 0.66, 1.0] selon BiomeType)
+        + scalars: energy_norm, age_norm, season_phase
     """
     r = vision_radius
     size = 2 * r + 1
     ar, ac = agent.pos
     rows = env.cfg.rows
     cols = env.cfg.cols
-    # 4 canaux (food, nests, plants, agents)
+    # 5 canaux V8-B1.5
     food_view = np.zeros((size, size), dtype=np.float32)
     nest_view = np.zeros((size, size), dtype=np.float32)
     plant_view = np.zeros((size, size), dtype=np.float32)
     agent_view = np.zeros((size, size), dtype=np.float32)
+    biome_view = np.zeros((size, size), dtype=np.float32)
     food_mask = env.food_mask
+    biome_map_local = getattr(env, "_biome_map", None)
     nest_set = {n.pos for n in env.nests.values()}
     plants = getattr(env, "plants", {})
     agents = env._agents  # noqa: SLF001
@@ -58,7 +68,6 @@ def egocentric_obs(env, agent, vision_radius: int = 5) -> np.ndarray:
             gr = ar + dr
             gc = ac + dc
             if not (0 <= gr < rows and 0 <= gc < cols):
-                # hors map = sentinelle (zero = comme rien)
                 continue
             i, j = dr + r, dc + r
             if food_mask[gr, gc]:
@@ -67,6 +76,9 @@ def egocentric_obs(env, agent, vision_radius: int = 5) -> np.ndarray:
                 nest_view[i, j] = 1.0
             if (gr, gc) in plants:
                 plant_view[i, j] = 1.0
+            if biome_map_local is not None:
+                # 0→0.0, 1→0.33, 2→0.66, 3→1.0
+                biome_view[i, j] = float(biome_map_local[gr, gc]) / 3.0
     for other in agents:
         if not other.alive or other.agent_id == agent.agent_id:
             continue
@@ -84,14 +96,18 @@ def egocentric_obs(env, agent, vision_radius: int = 5) -> np.ndarray:
         nest_view.flatten(),
         plant_view.flatten(),
         agent_view.flatten(),
+        biome_view.flatten(),
         np.array([energy_norm, age_norm, season_phase], dtype=np.float32),
     ]
     return np.concatenate(parts)
 
 
 def egocentric_obs_dim(vision_radius: int) -> int:
-    """Calcule la dim de l'observation égocentrique pour un radius."""
-    return 4 * (2 * vision_radius + 1) ** 2 + 3
+    """Calcule la dim de l'observation égocentrique pour un radius.
+
+    V8-B1.5 : 5 canaux × (2r+1)² + 3 scalars.
+    """
+    return 5 * (2 * vision_radius + 1) ** 2 + 3
 
 
 class LineageAgent:

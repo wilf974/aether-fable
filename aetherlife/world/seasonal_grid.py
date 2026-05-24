@@ -39,6 +39,12 @@ from aetherlife.world.cache import CacheConfig
 from aetherlife.world.construction import BuildConfig, NestRecord
 from aetherlife.world.food_grid import Action, _DELTAS
 from aetherlife.world.multi_agent_grid import _AgentState
+from aetherlife.world.biomes import (
+    BiomeConfig, biome_params_for, generate_biome_map,
+)
+from aetherlife.world.competition import (
+    CompetitionConfig, crowd_metabolism_factor,
+)
 from aetherlife.world.planting import PlantingConfig, PlantRecord
 from aetherlife.world.reproduction import LineageEdge, ReproductionConfig
 from aetherlife.world.traits import AgentTraits, TraitDistribution, TraitsConfig
@@ -112,6 +118,8 @@ class SeasonalMultiAgentConfig:
     cache: CacheConfig = CacheConfig()
     planting: PlantingConfig = PlantingConfig()
     traits: TraitsConfig = TraitsConfig()  # V7 — héritage de biais comportementaux
+    biomes: BiomeConfig = BiomeConfig()    # V8-B1.5 — niches écologiques
+    competition: CompetitionConfig = CompetitionConfig()  # V8-B1.5 — densité locale
 
     def __post_init__(self) -> None:
         if self.rows <= 0 or self.cols <= 0:
@@ -200,6 +208,11 @@ class SeasonalMultiAgentFoodGrid:
         self._temp_field: np.ndarray = np.zeros(
             (self.cfg.rows, self.cfg.cols), dtype=np.float32
         )
+        # V8-B1.5 — biome map (init plain partout; généré via Voronoi à reset
+        # si biomes.enabled)
+        self._biome_map: np.ndarray = np.zeros(
+            (self.cfg.rows, self.cfg.cols), dtype=np.int8
+        )
         self._agents: list[_AgentState] = []
         self._step_count: int = 0
         self._env_rng: np.random.Generator = np.random.default_rng()
@@ -256,6 +269,11 @@ class SeasonalMultiAgentFoodGrid:
     @property
     def food_mask(self) -> np.ndarray:
         return self._food_mask.copy()
+
+    @property
+    def biome_map(self) -> np.ndarray:
+        """V8-B1.5 — 2D int8, biome_id par tile (0..3)."""
+        return self._biome_map.copy()
 
     @property
     def temperature_field(self) -> np.ndarray:
@@ -491,6 +509,16 @@ class SeasonalMultiAgentFoodGrid:
         self._plants_planted_total = 0
         self._plants_matured_total = 0
         self._last_plant_tick = {}
+        # V8-B1.5 — biome map (worldgen Voronoi) ou plain partout si disabled
+        if self.cfg.biomes.enabled:
+            self._biome_map = generate_biome_map(
+                self.cfg.rows, self.cfg.cols, self.cfg.biomes,
+                seed=(seed or 0),
+            )
+        else:
+            self._biome_map = np.zeros(
+                (self.cfg.rows, self.cfg.cols), dtype=np.int8,
+            )
         self._initial_food_layout()
         self._refresh_temperature()
         return (
@@ -533,18 +561,36 @@ class SeasonalMultiAgentFoodGrid:
             new_c = clamp_pos(c, dc, self.cfg.cols)
             agent.pos = (new_r, new_c)
 
-            # Metabolism modulé par la température locale
+            # Metabolism modulé par la température locale ET le biome (V8-B1.5)
             local_temp = float(self._temp_field[new_r, new_c])
-            local_metabolism = self.cfg.metabolism
+            biome_p = biome_params_for(
+                int(self._biome_map[new_r, new_c]), self.cfg.biomes,
+            )
+            local_metabolism = self.cfg.metabolism * biome_p.metabolism_factor
             if local_temp < self.cfg.seasonal.cold_threshold:
                 local_metabolism *= self.cfg.seasonal.cold_metabolism_factor
+            # V8-B1.5 — compétition locale : metabolism augmente avec
+            # la densité d'agents voisins dans `radius` cells (Manhattan)
+            if self.cfg.competition.enabled:
+                ccfg = self.cfg.competition
+                n_neigh = 0
+                for other in self._agents:
+                    if not other.alive or other.agent_id == agent.agent_id:
+                        continue
+                    odr = abs(other.pos[0] - new_r)
+                    odc = abs(other.pos[1] - new_c)
+                    if odr + odc <= ccfg.radius:
+                        n_neigh += 1
+                local_metabolism *= crowd_metabolism_factor(n_neigh, ccfg)
 
             ate = bool(self._food_mask[new_r, new_c])
             if ate:
                 self._food_mask[new_r, new_c] = False
+                # V8-B1.5 — food value modulée par biome (tundra=plus nutritif)
+                local_food_value = self.cfg.food_value * biome_p.food_value_factor
                 agent.energy = energy_with_food(
                     agent.energy, local_metabolism,
-                    self.cfg.food_value, self.cfg.max_energy,
+                    local_food_value, self.cfg.max_energy,
                 )
                 # V6.1 — manger food → +seeds
                 if self.cfg.planting.enabled:
@@ -820,7 +866,12 @@ class SeasonalMultiAgentFoodGrid:
             self._food_mask[int(idx) // self.cfg.cols, int(idx) % self.cfg.cols] = True
 
     def _respawn_food_seasonal(self) -> None:
-        """Food regen modulé par la saison (I11)."""
+        """Food regen modulé par la saison (I11) ET par le biome (V8-B1.5).
+
+        V8-B1.5 : la probabilité qu'une tile reçoive un food spawn est
+        pondérée par `biome.food_lambda_factor`. Forêt = abondance,
+        désert = rare, tundra = très rare. Tirage pondéré sans remise.
+        """
         if self.cfg.food_respawn_lambda <= 0:
             return
         season_factor = get_seasonal_factor(self.season, self.cfg.seasonal)
@@ -831,6 +882,7 @@ class SeasonalMultiAgentFoodGrid:
         if n_spawn == 0:
             return
         free = []
+        weights = []
         agent_positions = {a.pos for a in self._agents if a.alive}
         nest_pos = self.nest_positions
         plant_pos = set(self._plants.keys())
@@ -843,10 +895,22 @@ class SeasonalMultiAgentFoodGrid:
                     and (r, c) not in plant_pos
                 ):
                     free.append((r, c))
+                    # V8-B1.5 — poids = food_lambda_factor du biome
+                    biome_p = biome_params_for(
+                        int(self._biome_map[r, c]), self.cfg.biomes,
+                    )
+                    weights.append(biome_p.food_lambda_factor)
         if not free:
             return
         n_actual = min(n_spawn, len(free))
-        chosen = self._spawn_rng.choice(len(free), size=n_actual, replace=False)
+        weights_arr = np.array(weights, dtype=np.float64)
+        wsum = weights_arr.sum()
+        if wsum <= 0:
+            return
+        weights_arr /= wsum
+        chosen = self._spawn_rng.choice(
+            len(free), size=n_actual, replace=False, p=weights_arr,
+        )
         for c_idx in chosen:
             r, c = free[int(c_idx)]
             self._food_mask[r, c] = True

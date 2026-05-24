@@ -39,7 +39,9 @@ import numpy as np
 
 from aetherlife.agents.lineage_agent import LineageAgent, egocentric_obs
 from aetherlife.agents.lineage_brain import BrainConfig, LineageBrain
+from aetherlife.world.biomes import BiomeConfig
 from aetherlife.world.cache import CacheConfig
+from aetherlife.world.competition import CompetitionConfig
 from aetherlife.world.construction import BuildConfig
 from aetherlife.world.planting import PlantingConfig
 from aetherlife.world.reproduction import ReproductionConfig
@@ -51,11 +53,10 @@ from aetherlife.world.seasonal_grid import (
 def build_env(seed: int, *, regime: str = "training") -> SeasonalMultiAgentFoodGrid:
     """Config selon regime :
 
-    - 'training' : permissif, pour laisser les cerveaux apprendre sans
-      mourir en cold-start. metabolism=0.35, winter=0.6, start_energy=180.
-      Tester que les lignées divergent et apprennent.
-    - 'darwinian' : dur, pour observer la sélection cognitive une fois
-      les cerveaux compétents. metabolism=0.65, winter=0.3.
+    - 'training' : permissif, monde homogène (V8-B1).
+    - 'darwinian' : dur, monde homogène (V8-B1).
+    - 'niches'   : V8-B1.5 — biomes Voronoi + compétition locale +
+                   max_pop élevé. Cible : ≥3 lignées coexistantes après 100k.
     """
     if regime == "darwinian":
         metabolism = 0.65
@@ -63,12 +64,37 @@ def build_env(seed: int, *, regime: str = "training") -> SeasonalMultiAgentFoodG
         start_e = 140.0
     else:
         metabolism = 0.35
-        winter_f = 0.6
+        winter_f = 0.5
+        start_e = 160.0
+    # V8-B1.5 : régime "niches" → biomes + compétition + max_pop haut
+    if regime == "niches":
+        rows = 40
+        cols = 40
+        n_agents = 16
+        max_pop = 80
+        food_respawn_lambda = 0.6
+        metabolism = 0.3   # un poil plus permissif pour absorber biome cost
         start_e = 180.0
+        biome_cfg = BiomeConfig(enabled=True, n_seed_points=6)
+        competition_cfg = CompetitionConfig(
+            enabled=True, radius=3,
+            metabolism_per_neighbor=0.03, max_factor=2.0,
+        )
+    else:
+        rows = 30
+        cols = 30
+        n_agents = 10
+        max_pop = 30
+        food_respawn_lambda = 0.25
+        biome_cfg = BiomeConfig(enabled=False)
+        competition_cfg = CompetitionConfig(enabled=False)
     cfg = SeasonalMultiAgentConfig(
-        rows=30, cols=30, n_agents=10, max_energy=300.0, start_energy=start_e,
+        rows=rows, cols=cols, n_agents=n_agents,
+        max_energy=300.0, start_energy=start_e,
         metabolism=metabolism, food_value=18.0, death_penalty=0.0,
-        initial_food_density=0.06, food_respawn_lambda=0.25, max_steps=200_000,
+        initial_food_density=0.06,
+        food_respawn_lambda=food_respawn_lambda,
+        max_steps=200_000,
         seasonal=SeasonalConfig(
             season_period=200, spring_lambda_factor=1.4,
             summer_lambda_factor=1.0, autumn_lambda_factor=0.8,
@@ -76,7 +102,7 @@ def build_env(seed: int, *, regime: str = "training") -> SeasonalMultiAgentFoodG
         ),
         reproduction=ReproductionConfig(
             enabled=True, energy_threshold=130.0, energy_cost=70.0,
-            cooldown_ticks=100, max_population=30,
+            cooldown_ticks=100, max_population=max_pop,
         ),
         build=BuildConfig(
             enabled=True, energy_threshold=130.0, build_cost=40.0,
@@ -84,6 +110,8 @@ def build_env(seed: int, *, regime: str = "training") -> SeasonalMultiAgentFoodG
         ),
         cache=CacheConfig(enabled=False),
         planting=PlantingConfig(enabled=False),
+        biomes=biome_cfg,
+        competition=competition_cfg,
     )
     env = SeasonalMultiAgentFoodGrid(cfg)
     env.reset(seed=seed)
@@ -391,7 +419,10 @@ def main() -> None:
     p.add_argument("--device", default="cpu")
     p.add_argument("--out-dir", default="results/v8b1_overnight")
     p.add_argument("--snap-every", type=int, default=5000)
-    p.add_argument("--regime", default="training", choices=["training", "darwinian"])
+    p.add_argument(
+        "--regime", default="training",
+        choices=["training", "darwinian", "niches"],
+    )
     args = p.parse_args()
     run_overnight(
         n_ticks=args.ticks, seed=args.seed, device=args.device,

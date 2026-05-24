@@ -105,3 +105,49 @@ def test_registry_act_via_lookup() -> None:
     obs = np.zeros(10, dtype=np.float32)
     a = reg.act_for_lineage(root_id=0, obs=obs, greedy=True)
     assert 0 <= a < 4
+
+
+# ─── V8-B1.5 : soft cull avec grace_ticks ──────────────────────────────
+
+
+def test_soft_cull_keeps_brain_during_grace() -> None:
+    """grace_ticks=100 → brain pas supprimé tant que t < extinction_tick + 100."""
+    reg = LineageRegistry(cfg=_cfg(), obs_dim=10, n_actions=4, grace_ticks=100)
+    reg.get_or_create(root_id=0, parent_brain=None, seed=0)
+    # Marquer la lignée éteinte à t=50 (alive_roots vide)
+    freed = reg.cull_dead_lineages(alive_roots=set(), current_tick=50)
+    assert freed == 0
+    assert 0 in reg  # brain encore là
+    # À t=149 (avant grace expiration), toujours là
+    freed = reg.cull_dead_lineages(alive_roots=set(), current_tick=149)
+    assert freed == 0
+    assert 0 in reg
+    # À t=150 (grace écoulée), supprimé
+    freed = reg.cull_dead_lineages(alive_roots=set(), current_tick=150)
+    assert freed == 1
+    assert 0 not in reg
+
+
+def test_soft_cull_resurrection_cancels_extinction() -> None:
+    """Si une lignée ressuscite (revient dans alive_roots), son extinction
+    est effacée et grace_ticks redémarre à zéro pour la prochaine mort."""
+    reg = LineageRegistry(cfg=_cfg(), obs_dim=10, n_actions=4, grace_ticks=100)
+    reg.get_or_create(root_id=0, parent_brain=None, seed=0)
+    # Extinction à t=50
+    reg.cull_dead_lineages(alive_roots=set(), current_tick=50)
+    assert 0 in reg
+    # Résurrection à t=120
+    reg.cull_dead_lineages(alive_roots={0}, current_tick=120)
+    assert 0 in reg
+    # Devrait persister bien au-delà de t=150 (extinction effacée)
+    reg.cull_dead_lineages(alive_roots={0}, current_tick=200)
+    assert 0 in reg
+
+
+def test_hard_cull_immediate_compat() -> None:
+    """grace_ticks=0 → suppression immédiate (compat backward V8-B1)."""
+    reg = LineageRegistry(cfg=_cfg(), obs_dim=10, n_actions=4, grace_ticks=0)
+    reg.get_or_create(root_id=0, parent_brain=None, seed=0)
+    freed = reg.cull_dead_lineages(alive_roots=set())
+    assert freed == 1
+    assert 0 not in reg

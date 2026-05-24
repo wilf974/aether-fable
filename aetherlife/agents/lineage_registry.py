@@ -30,18 +30,29 @@ from aetherlife.agents.lineage_brain import BrainConfig, LineageBrain
 
 
 class LineageRegistry:
-    """Index des cerveaux actifs par root_ancestor_id."""
+    """Index des cerveaux actifs par root_ancestor_id.
+
+    V8-B1.5 — soft cull avec `grace_ticks` : un cerveau de lignée éteinte
+    n'est pas immédiatement libéré, il reste disponible pendant
+    `grace_ticks` ticks pour permettre la résurrection de la lignée
+    (et donc la récupération du savoir).
+    """
 
     def __init__(
         self,
         cfg: BrainConfig,
         obs_dim: int,
         n_actions: int,
+        *,
+        grace_ticks: int = 0,
     ) -> None:
         self.cfg = cfg
         self.obs_dim = obs_dim
         self.n_actions = n_actions
+        self.grace_ticks = grace_ticks
         self._brains: dict[int, LineageBrain] = {}
+        # V8-B1.5 — tick d'extinction par lignée (None = vivante)
+        self._extinction_ticks: dict[int, int] = {}
 
     def __len__(self) -> int:
         return len(self._brains)
@@ -88,12 +99,56 @@ class LineageRegistry:
         self._brains[root_id] = brain
         return brain
 
-    def cull_dead_lineages(self, alive_roots: set[int]) -> int:
-        """Supprime les brains des lignées éteintes. Retourne n supprimés."""
-        dead = [r for r in self._brains if r not in alive_roots]
-        for r in dead:
-            del self._brains[r]
-        return len(dead)
+    def cull_dead_lineages(
+        self,
+        alive_roots: set[int],
+        current_tick: int | None = None,
+    ) -> int:
+        """V8-B1.5 — Cull soft avec grace_ticks (si > 0).
+
+        Logique :
+            - Si `grace_ticks == 0` (V8-B1) : suppression immédiate
+              des lignées éteintes (compat backward).
+            - Si `grace_ticks > 0` (V8-B1.5) : on marque la date
+              d'extinction et on supprime SEULEMENT après que le délai
+              soit écoulé. Une lignée ressuscitée (alive_roots la contient
+              de nouveau) voit son extinction_tick effacé.
+
+        Args:
+            alive_roots: set des roots vivants à ce tick.
+            current_tick: tick courant. Requis si grace_ticks > 0.
+
+        Returns:
+            nombre de brains réellement supprimés.
+        """
+        # Reset extinction pour lignées ressuscitées
+        for r in list(self._extinction_ticks):
+            if r in alive_roots:
+                del self._extinction_ticks[r]
+        # Compat backward : cull immédiat si grace_ticks=0
+        if self.grace_ticks <= 0:
+            dead = [r for r in self._brains if r not in alive_roots]
+            for r in dead:
+                del self._brains[r]
+                self._extinction_ticks.pop(r, None)
+            return len(dead)
+        # Soft cull : marquer extinctions nouvelles
+        if current_tick is None:
+            raise ValueError(
+                "current_tick requis quand grace_ticks > 0"
+            )
+        for r in list(self._brains):
+            if r not in alive_roots and r not in self._extinction_ticks:
+                self._extinction_ticks[r] = current_tick
+        # Free seulement après grace_ticks écoulés
+        to_free = [
+            r for r, t in self._extinction_ticks.items()
+            if (current_tick - t) >= self.grace_ticks
+        ]
+        for r in to_free:
+            self._brains.pop(r, None)
+            del self._extinction_ticks[r]
+        return len(to_free)
 
     def alive_roots(self) -> set[int]:
         return set(self._brains.keys())

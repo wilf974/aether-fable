@@ -74,6 +74,14 @@ HUD_RED = (220, 90, 90)
 HUD_GREEN = (90, 200, 90)
 HUD_PANEL = (24, 24, 30)
 
+# V8-B1.5 — couleurs de fond par biome (subtiles, ton du tile sous le contenu)
+BIOME_COLORS = {
+    0: (28, 30, 36),    # PLAIN  — neutre (= CELL_FREE)
+    1: (24, 50, 28),    # FOREST — vert sombre
+    2: (60, 50, 30),    # DESERT — sable foncé
+    3: (40, 50, 65),    # TUNDRA — bleu-gris froid
+}
+
 _GOLDEN_RATIO_CONJ = 0.6180339887498949   # 1/phi
 
 
@@ -574,21 +582,31 @@ def run_gui_v3(
         tmax = env.cfg.seasonal.temp_max
 
         # 1) base cell color (heatmap optionnel, sinon uniforme)
+        # V8-B1.5 — biome map en background (subtil, sous les autres layers)
+        biomes_enabled = (
+            hasattr(env.cfg, "biomes") and env.cfg.biomes.enabled
+        )
+        biome_map_arr = env.biome_map if biomes_enabled else None
         for r in range(env.cfg.rows):
             for c in range(env.cfg.cols):
                 x, y = c * cell_px, r * cell_px
                 rect = pygame.Rect(x, y, cell_px, cell_px)
+                # Couleur de base = biome tinted OU CELL_FREE
+                if biomes_enabled and biome_map_arr is not None:
+                    base = BIOME_COLORS.get(
+                        int(biome_map_arr[r, c]), CELL_FREE,
+                    )
+                else:
+                    base = CELL_FREE
                 if show_temp:
                     base_color = _temp_to_color(float(temp_field[r, c]), tmin, tmax)
-                    # rend la heatmap plus subtile
-                    cf = CELL_FREE
                     mix = HEATMAP_ALPHA / 255
                     base_color = tuple(
-                        int(cf[i] * (1 - mix) + base_color[i] * mix) for i in range(3)
+                        int(base[i] * (1 - mix) + base_color[i] * mix) for i in range(3)
                     )
                     pygame.draw.rect(screen, base_color, rect)
                 else:
-                    pygame.draw.rect(screen, CELL_FREE, rect)
+                    pygame.draw.rect(screen, base, rect)
                 pygame.draw.rect(screen, GRID_LINE, rect, 1)
 
         # 2) food : cercle bordé en vert avec point clair central (plus lisible)

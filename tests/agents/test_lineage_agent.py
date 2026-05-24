@@ -41,16 +41,17 @@ def _make_env(n_agents: int = 4, rows: int = 12, cols: int = 12) -> SeasonalMult
 
 
 def test_egocentric_obs_dim() -> None:
-    assert egocentric_obs_dim(5) == 4 * 121 + 3  # 487
-    assert egocentric_obs_dim(3) == 4 * 49 + 3   # 199
-    assert egocentric_obs_dim(1) == 4 * 9 + 3    # 39
+    # V8-B1.5 : 5 canaux (food, nests, plants, agents, biome) + 3 scalars
+    assert egocentric_obs_dim(5) == 5 * 121 + 3  # 608
+    assert egocentric_obs_dim(3) == 5 * 49 + 3   # 248
+    assert egocentric_obs_dim(1) == 5 * 9 + 3    # 48
 
 
 def test_egocentric_obs_shape() -> None:
     env = _make_env(n_agents=2)
     agent = env._agents[0]  # noqa: SLF001
     obs = egocentric_obs(env, agent, vision_radius=5)
-    assert obs.shape == (487,)
+    assert obs.shape == (608,)
     assert obs.dtype == np.float32
 
 
@@ -60,7 +61,8 @@ def test_egocentric_obs_self_excluded() -> None:
     agent = env._agents[0]  # noqa: SLF001
     obs = egocentric_obs(env, agent, vision_radius=2)
     size = 5
-    agent_view = obs[2 * size * size : 3 * size * size + 3 - 3].reshape(size, size)
+    # canal agents = 4ème (index 3) → offset 3 * size² .. 4 * size²
+    agent_view = obs[3 * size * size: 4 * size * size].reshape(size, size)
     # Le centre (r, r) = position de l'agent ; doit être 0 (pas lui-même)
     assert agent_view[2, 2] == 0.0
 
@@ -69,9 +71,12 @@ def test_egocentric_obs_values_in_range() -> None:
     env = _make_env(n_agents=3)
     agent = env._agents[0]  # noqa: SLF001
     obs = egocentric_obs(env, agent, vision_radius=5)
-    # Canaux binaires
+    # Canaux binaires (4 premiers)
     binary_part = obs[: 4 * 121]
     assert np.all((binary_part == 0.0) | (binary_part == 1.0))
+    # Canal biome (5ème) : valeurs ∈ [0, 1]
+    biome_part = obs[4 * 121: 5 * 121]
+    assert np.all((biome_part >= 0.0) & (biome_part <= 1.0))
     # Scalars normalisés
     e, age, phase = obs[-3], obs[-2], obs[-1]
     assert 0.0 <= e <= 1.0
