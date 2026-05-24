@@ -8,11 +8,17 @@ du parent et applique une mutation gaussienne sur les poids.
 Architecture :
     - QNetwork MLP compact (default hidden 64×64)
     - ReplayBuffer partagé par la lignée
-    - DQNTrainer (gradient + target sync)
+    - _StableDQNTrainer (V8-B1.8 — grad_clip configurable + loss guard)
     - Epsilon-greedy avec décroissance linéaire
 
-Réutilise les composants MW_IA (`QNetwork`, `ReplayBuffer`, `DQNTrainer`)
-qui sont env-agnostiques.
+V8-B1.8 stabilisation anti-divergence :
+    - reward clipping dans observe() (default [-1, +1])
+    - gradient clipping configurable (default max_norm=1.0)
+    - loss guard : skip step si NaN/Inf/> threshold
+    - compteur skipped_updates pour métrique
+
+Réutilise les composants MW_IA (`QNetwork`, `ReplayBuffer`) qui sont
+env-agnostiques. Override DQNTrainer pour ajouter les guards.
 
 Voir la spec : `docs/superpowers/specs/2026-05-23-aetherlife-v8-b1-cognitive-inheritance-design.md`
 """
@@ -52,6 +58,14 @@ class BrainConfig:
 
     # Observation (égocentrique)
     vision_radius: int = 5       # 11×11 fenêtre
+
+    # V8-B1.8 — stabilisation RL anti-divergence
+    reward_clip_enabled: bool = True
+    reward_clip_low: float = -1.0
+    reward_clip_high: float = 1.0
+    grad_clip_norm: float = 1.0            # clip_grad_norm_ max_norm
+    loss_max_threshold: float = 100.0      # skip step si loss > threshold
+    skip_invalid_updates: bool = True      # skip step si loss NaN/Inf
 
     # Practical
     device: str = "cuda"
@@ -97,6 +111,97 @@ class BrainConfig:
             raise ValueError(
                 f"vision_radius doit être >= 1, got {self.vision_radius}"
             )
+        if self.reward_clip_low >= self.reward_clip_high:
+            raise ValueError(
+                f"reward_clip_low ({self.reward_clip_low}) doit être < "
+                f"reward_clip_high ({self.reward_clip_high})"
+            )
+        if self.grad_clip_norm <= 0:
+            raise ValueError(
+                f"grad_clip_norm doit être > 0 (got {self.grad_clip_norm})"
+            )
+        if self.loss_max_threshold <= 0:
+            raise ValueError(
+                f"loss_max_threshold doit être > 0 (got {self.loss_max_threshold})"
+            )
+
+
+def _make_stable_trainer(
+    online,
+    target,
+    *,
+    lr: float,
+    gamma: float,
+    device: str,
+    grad_clip_norm: float,
+    loss_max_threshold: float,
+    skip_invalid: bool,
+):
+    """V8-B1.8 — trainer DQN stabilisé.
+
+    Wrappe `DQNTrainer` (MW_IA) avec :
+      - grad_clip_norm configurable (vs 10.0 hardcodé MW_IA)
+      - loss guard : si loss NaN/Inf/> threshold → skip optimizer step
+        et retourne 0.0 (compteur skipped_updates incrémenté)
+
+    Retourne une instance avec attribut `skipped_updates: int`.
+    """
+    import torch
+    from mw_ia.neural.trainer import DQNTrainer
+
+    base = DQNTrainer(
+        online, target, lr=lr, gamma=gamma, device=device, use_amp=False,
+    )
+    base.skipped_updates = 0  # type: ignore[attr-defined]
+    base._grad_clip_norm = grad_clip_norm  # type: ignore[attr-defined]
+    base._loss_max = loss_max_threshold  # type: ignore[attr-defined]
+    base._skip_invalid = skip_invalid  # type: ignore[attr-defined]
+
+    original_step = base.step
+
+    def stable_step(batch) -> float:
+        # Reproduit la logique de DQNTrainer.step mais avec garde.
+        states = torch.from_numpy(batch.states).to(base.device, non_blocking=True)
+        actions = torch.from_numpy(batch.actions).to(base.device, non_blocking=True)
+        rewards = torch.from_numpy(batch.rewards).to(base.device, non_blocking=True)
+        next_states = torch.from_numpy(batch.next_states).to(
+            base.device, non_blocking=True,
+        )
+        dones = torch.from_numpy(batch.dones).to(base.device, non_blocking=True)
+
+        q_pred = base.online(states).gather(1, actions.view(-1, 1)).squeeze(1)
+        with torch.no_grad():
+            q_next = base.target(next_states).max(dim=1).values
+            target_q = rewards + base.gamma * q_next * (1.0 - dones)
+
+        # Q-value guard
+        if base._skip_invalid:
+            if not (torch.isfinite(q_pred).all() and torch.isfinite(target_q).all()):
+                base.skipped_updates += 1
+                return 0.0
+
+        loss = base.loss_fn(q_pred, target_q)
+        loss_val = float(loss.detach().item())
+
+        # Loss guard
+        if base._skip_invalid:
+            if not (loss_val == loss_val) or loss_val == float("inf"):  # NaN/Inf
+                base.skipped_updates += 1
+                return loss_val
+            if loss_val > base._loss_max:
+                base.skipped_updates += 1
+                return loss_val
+
+        base.optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(
+            base.online.parameters(), max_norm=base._grad_clip_norm,
+        )
+        base.optimizer.step()
+        return loss_val
+
+    base.step = stable_step  # type: ignore[assignment]
+    return base
 
 
 class LineageBrain:
@@ -116,7 +221,6 @@ class LineageBrain:
         import torch
         from mw_ia.neural.network import QNetwork
         from mw_ia.neural.replay_buffer import ReplayBuffer
-        from mw_ia.neural.trainer import DQNTrainer
 
         self.root_id = root_id
         self.obs_dim = obs_dim
@@ -132,9 +236,13 @@ class LineageBrain:
         self.online = QNetwork(obs_dim, n_actions, cfg.hidden_dims).to(self.device)
         self.target = QNetwork(obs_dim, n_actions, cfg.hidden_dims).to(self.device)
         self.target.load_state_dict(self.online.state_dict())
-        self.trainer = DQNTrainer(
+        # V8-B1.8 — trainer stabilisé (grad_clip + loss guard)
+        self.trainer = _make_stable_trainer(
             self.online, self.target, lr=cfg.lr, gamma=cfg.gamma,
-            device=str(self.device), use_amp=False,
+            device=str(self.device),
+            grad_clip_norm=cfg.grad_clip_norm,
+            loss_max_threshold=cfg.loss_max_threshold,
+            skip_invalid=cfg.skip_invalid_updates,
         )
         self.buffer = ReplayBuffer(cfg.buffer_capacity, obs_dim, seed=seed)
         self.global_step: int = 0
@@ -168,9 +276,21 @@ class LineageBrain:
         next_obs: np.ndarray,
         done: bool,
     ) -> dict[str, float]:
-        """Push transition + train si conditions OK."""
+        """Push transition + train si conditions OK.
+
+        V8-B1.8 : reward clipping pour éviter explosion de Q-values
+        (DQN deadlock observé à t=40k en V8-B1.7).
+        """
+        # V8-B1.8 — clip reward dans [low, high] avant push (optionnel)
+        if self.cfg.reward_clip_enabled:
+            r_eff = max(
+                self.cfg.reward_clip_low,
+                min(self.cfg.reward_clip_high, float(reward)),
+            )
+        else:
+            r_eff = float(reward)
         self.buffer.push(
-            obs.astype(np.float32), action, reward,
+            obs.astype(np.float32), action, r_eff,
             next_obs.astype(np.float32), done,
         )
         self.global_step += 1
