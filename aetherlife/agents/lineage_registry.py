@@ -45,6 +45,7 @@ class LineageRegistry:
         n_actions: int,
         *,
         grace_ticks: int = 0,
+        seed_bank_max_per_affinity: int = 2,
     ) -> None:
         self.cfg = cfg
         self.obs_dim = obs_dim
@@ -53,6 +54,9 @@ class LineageRegistry:
         self._brains: dict[int, LineageBrain] = {}
         # V8-B1.5 — tick d'extinction par lignée (None = vivante)
         self._extinction_ticks: dict[int, int] = {}
+        # V8-B1.7 — seed bank par affinity (FIFO bornée)
+        self.seed_bank_max_per_affinity = seed_bank_max_per_affinity
+        self._seed_bank: dict[int, list[LineageBrain]] = {}
 
     def __len__(self) -> int:
         return len(self._brains)
@@ -129,7 +133,8 @@ class LineageRegistry:
         if self.grace_ticks <= 0:
             dead = [r for r in self._brains if r not in alive_roots]
             for r in dead:
-                del self._brains[r]
+                brain = self._brains.pop(r)
+                self._archive_to_seed_bank(brain)  # V8-B1.7
                 self._extinction_ticks.pop(r, None)
             return len(dead)
         # Soft cull : marquer extinctions nouvelles
@@ -146,9 +151,46 @@ class LineageRegistry:
             if (current_tick - t) >= self.grace_ticks
         ]
         for r in to_free:
-            self._brains.pop(r, None)
+            brain = self._brains.pop(r, None)
+            if brain is not None:
+                self._archive_to_seed_bank(brain)  # V8-B1.7
             del self._extinction_ticks[r]
         return len(to_free)
+
+    # V8-B1.7 — Seed bank management
+    def _archive_to_seed_bank(self, brain: LineageBrain) -> None:
+        """Archive un brain de lignée éteinte par affinity.
+
+        Si l'affinity du brain est None, ne archive pas (compat V8-B1).
+        FIFO bornée à `seed_bank_max_per_affinity` par affinity (le plus
+        récent remplace le plus ancien).
+        """
+        aff = brain.biome_affinity
+        if aff is None:
+            return
+        bank = self._seed_bank.setdefault(aff, [])
+        bank.append(brain)
+        while len(bank) > self.seed_bank_max_per_affinity:
+            bank.pop(0)
+
+    def get_seed_brain_for_affinity(
+        self, affinity: int,
+    ) -> LineageBrain | None:
+        """Retourne le brain le plus récent archivé pour cette affinity.
+
+        Ne retire pas le brain de la seed bank (réutilisable).
+        Retourne None si la seed bank est vide pour cette affinity.
+        """
+        bank = self._seed_bank.get(affinity)
+        if not bank:
+            return None
+        return bank[-1]
+
+    def seed_bank_size(self, affinity: int | None = None) -> int:
+        """Nombre de brains archivés (pour une affinity ou total)."""
+        if affinity is None:
+            return sum(len(v) for v in self._seed_bank.values())
+        return len(self._seed_bank.get(affinity, []))
 
     def alive_roots(self) -> set[int]:
         return set(self._brains.keys())

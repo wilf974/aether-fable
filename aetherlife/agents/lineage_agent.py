@@ -131,17 +131,27 @@ class LineageAgent:
         self._seed = seed
         self._next_seed = seed + 10_000
         self.obs_dim = egocentric_obs_dim(self.cfg.vision_radius)
+        bcfg = getattr(env.cfg, "biomes", None)
+        seed_bank_max = (
+            bcfg.seed_bank_max_per_affinity if bcfg is not None else 2
+        )
         self.registry = LineageRegistry(
             cfg=self.cfg, obs_dim=self.obs_dim, n_actions=n_actions,
+            seed_bank_max_per_affinity=seed_bank_max,
         )
         # Init un brain par lignée fondatrice (agents id 0..n_agents-1)
         for agent in env._agents:  # noqa: SLF001
             if agent.alive:
-                self.registry.get_or_create(
+                brain = self.registry.get_or_create(
                     root_id=agent.root_ancestor_id,
                     parent_brain=None,
                     seed=self._fresh_seed(),
                 )
+                # V8-B1.7 — attacher l'affinity au brain pour seed bank
+                brain.biome_affinity = agent.biome_affinity
+        # V8-B1.7 — tracking dernière vie d'une affinity (pour respawn)
+        self._affinity_last_seen: dict[int, int] = {}
+        self._last_respawn_for_aff: dict[int, int] = {}
 
     def _fresh_seed(self) -> int:
         s = self._next_seed
@@ -151,28 +161,90 @@ class LineageAgent:
     def _ensure_brain_for(self, agent) -> None:
         """Crée le brain de la lignée si nouveau-né d'une lignée inédite.
 
-        Note V5.2 : tous les descendants partagent `root_ancestor_id` du
-        fondateur. Donc en pratique on n'aura pas de "nouvelle lignée"
-        après le reset, sauf si on introduit fork explicit en B2+.
+        V5.2 : tous les descendants partagent `root_ancestor_id` du fondateur.
+        V8-B1.7 : si nouvelle lignée (respawn fondateur) ET seed bank a
+        un brain pour cette affinity, hériter du brain archivé.
         """
         root = agent.root_ancestor_id
         if root in self.registry:
             return
-        # Si parent connu : hériter, sinon init random
+        # 1) Si parent connu : hériter du parent
         parent_brain = None
         if agent.parent_id is not None:
             parent_agent = self._get_agent_by_id(agent.parent_id)
             if parent_agent is not None:
                 parent_brain = self.registry.get(parent_agent.root_ancestor_id)
-        self.registry.get_or_create(
+        # 2) V8-B1.7 : fondateur sans parent → check seed bank
+        if parent_brain is None and agent.biome_affinity is not None:
+            parent_brain = self.registry.get_seed_brain_for_affinity(
+                agent.biome_affinity
+            )
+        brain = self.registry.get_or_create(
             root_id=root, parent_brain=parent_brain, seed=self._fresh_seed(),
         )
+        # V8-B1.7 — attacher l'affinity au brain
+        brain.biome_affinity = agent.biome_affinity
 
     def _get_agent_by_id(self, aid: int):
         for a in self.env._agents:  # noqa: SLF001
             if a.agent_id == aid:
                 return a
         return None
+
+    def maybe_respawn_extinct_affinities(self) -> int:
+        """V8-B1.7 — Check si une affinity est éteinte depuis trop longtemps,
+        et la relance via env.spawn_founder() + seed bank.
+
+        Retourne le nombre de respawns effectués ce tick.
+        """
+        env = self.env
+        bcfg = getattr(env.cfg, "biomes", None)
+        if bcfg is None or not bcfg.affinity_enabled or not bcfg.respawn_enabled:
+            return 0
+        cur_tick = env._step_count  # noqa: SLF001
+        if cur_tick % bcfg.respawn_check_every != 0:
+            return 0
+        # Compter vivants par affinity
+        alive_per_aff: dict[int, int] = {a: 0 for a in range(4)}
+        for ag in env._agents:  # noqa: SLF001
+            if ag.alive and ag.biome_affinity is not None:
+                alive_per_aff[ag.biome_affinity] = alive_per_aff.get(
+                    ag.biome_affinity, 0
+                ) + 1
+        # Mettre à jour last_seen et déclencher respawn si seuil
+        n_respawned = 0
+        for aff, n_alive in alive_per_aff.items():
+            if n_alive >= bcfg.respawn_threshold:
+                self._affinity_last_seen[aff] = cur_tick
+                continue
+            last_seen = self._affinity_last_seen.get(aff, 0)
+            ticks_since = cur_tick - last_seen
+            if ticks_since < bcfg.respawn_extinct_after_ticks:
+                continue
+            # Cooldown anti-respawn-spam
+            last_resp = self._last_respawn_for_aff.get(aff, -10**9)
+            if cur_tick - last_resp < bcfg.respawn_check_every * 4:
+                continue
+            # Respawn
+            new_id = env.spawn_founder(aff)
+            if new_id is None:
+                continue
+            self._last_respawn_for_aff[aff] = cur_tick
+            # Brain via seed bank si dispo, sinon random
+            seed_brain = self.registry.get_seed_brain_for_affinity(aff)
+            if seed_brain is not None:
+                brain = self.registry.get_or_create(
+                    root_id=new_id, parent_brain=seed_brain,
+                    seed=self._fresh_seed(),
+                )
+            else:
+                brain = self.registry.get_or_create(
+                    root_id=new_id, parent_brain=None,
+                    seed=self._fresh_seed(),
+                )
+            brain.biome_affinity = aff
+            n_respawned += 1
+        return n_respawned
 
     def act_dict(
         self,

@@ -110,6 +110,7 @@ class LineageBrain:
         cfg: BrainConfig,
         *,
         seed: int = 0,
+        biome_affinity: int | None = None,
     ) -> None:
         # Imports lazy pour éviter coût torch en collection-time
         import torch
@@ -121,6 +122,8 @@ class LineageBrain:
         self.obs_dim = obs_dim
         self.n_actions = n_actions
         self.cfg = cfg
+        # V8-B1.7 — affinity associée à ce brain (pour seed bank lookup)
+        self.biome_affinity = biome_affinity
         self._rng = np.random.default_rng(seed)
         torch.manual_seed(seed)
         wants_cuda = cfg.device == "cuda" and torch.cuda.is_available()
@@ -192,6 +195,7 @@ class LineageBrain:
         *,
         mutation_std: float | None = None,
         seed: int = 0,
+        biome_affinity: int | None = None,
     ) -> "LineageBrain":
         """Clone le cerveau parent + mutation gaussienne sur les poids.
 
@@ -204,12 +208,15 @@ class LineageBrain:
         """
         if mutation_std is None:
             mutation_std = parent.cfg.mutation_std
+        # V8-B1.7 : hériter l'affinity du parent si pas explicite
+        affinity = biome_affinity if biome_affinity is not None else parent.biome_affinity
         child = cls(
             root_id=root_id,
             obs_dim=parent.obs_dim,
             n_actions=parent.n_actions,
             cfg=parent.cfg,
             seed=seed,
+            biome_affinity=affinity,
         )
         # Copy + mutation
         torch = child._torch

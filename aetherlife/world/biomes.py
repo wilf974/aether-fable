@@ -111,6 +111,15 @@ class BiomeConfig:
     # V8-B1.6 — Worldgen équilibré (force ≥1 seed de chaque type)
     balanced_seeds: bool = False
 
+    # V8-B1.7 — Seed bank + respawn affinities éteintes
+    respawn_enabled: bool = False
+    respawn_check_every: int = 100        # check tous les N ticks
+    respawn_extinct_after_ticks: int = 5000  # seuil avant respawn
+    respawn_threshold: int = 2            # respawn si n_alive_aff < threshold
+    respawn_initial_energy: float = 200.0
+    seed_bank_max_per_affinity: int = 2
+    seed_bank_mutation_std: float = 0.05  # mutation du brain réveillé
+
     def __post_init__(self) -> None:
         if self.n_seed_points <= 0:
             raise ValueError(

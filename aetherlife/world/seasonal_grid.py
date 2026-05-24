@@ -896,6 +896,47 @@ class SeasonalMultiAgentFoodGrid:
             self._builds_last_step.append(nest)
             nest_pos_set.add(agent.pos)
 
+    def spawn_founder(self, affinity: int) -> int | None:
+        """V8-B1.7 — Spawn un nouveau fondateur dans un biome donné.
+
+        Cherche un tile libre du biome `affinity` et crée un nouvel agent
+        avec une nouvelle root_ancestor_id (nouvelle lignée). Retourne
+        l'agent_id du nouveau né, ou None si aucun tile libre.
+
+        Le brain n'est PAS créé ici (responsabilité de l'orchestrateur
+        LineageAgent qui peut le hérérer de la seed bank).
+        """
+        if not self.cfg.biomes.enabled or not self.cfg.biomes.affinity_enabled:
+            return None
+        # Cherche un tile du biome cible non occupé par un agent vivant
+        occupied = {a.pos for a in self._agents if a.alive}
+        candidates: list[tuple[int, int]] = []
+        for r in range(self.cfg.rows):
+            for c in range(self.cfg.cols):
+                if int(self._biome_map[r, c]) != affinity:
+                    continue
+                if (r, c) in occupied:
+                    continue
+                candidates.append((r, c))
+        if not candidates:
+            return None
+        idx = int(self._placement_rng.integers(0, len(candidates)))
+        pos = candidates[idx]
+        new_id = self._next_agent_id
+        self._next_agent_id += 1
+        new_agent = _AgentState(
+            agent_id=new_id, pos=pos,
+            energy=self.cfg.biomes.respawn_initial_energy,
+            alive=True, parent_id=None,
+            birth_tick=self._step_count, generation=0,
+            last_repro_tick=-10**9,
+            root_ancestor_id=new_id,  # nouvelle lignée
+            biome_affinity=affinity,
+        )
+        self._agents.append(new_agent)
+        self._births_last_step.append(new_id)
+        return new_id
+
     def _find_free_adjacent(
         self,
         pos: tuple[int, int],

@@ -81,7 +81,8 @@ def build_env(seed: int, *, regime: str = "training") -> SeasonalMultiAgentFoodG
             metabolism_per_neighbor=0.03, max_factor=2.0,
         )
     elif regime == "speciation":
-        # V8-B1.6 : biomes + affinity héritée + reproduction biome-locked
+        # V8-B1.6 + V8-B1.7 : biomes + affinity héritée + reproduction
+        # biome-locked + seed bank + respawn anti-extinction
         rows = 40
         cols = 40
         n_agents = 20    # 5 par affinity en moyenne
@@ -96,6 +97,14 @@ def build_env(seed: int, *, regime: str = "training") -> SeasonalMultiAgentFoodG
             out_affinity_metabolism=1.5, out_affinity_food_value=0.7,
             out_affinity_movement_mult=2.5,
             reproduction_locked_to_affinity=True,
+            # V8-B1.7 — respawn anti-extinction
+            respawn_enabled=True,
+            respawn_check_every=200,
+            respawn_extinct_after_ticks=3000,
+            respawn_threshold=2,
+            respawn_initial_energy=200.0,
+            seed_bank_max_per_affinity=2,
+            seed_bank_mutation_std=0.05,
         )
         competition_cfg = CompetitionConfig(
             enabled=True, radius=3,
@@ -278,6 +287,9 @@ def run_overnight(
             prev_obs_ego=last_ego, actions=actions, rewards=rewards,
             next_obs_ego=next_ego, dones=dones, agent_root_ids=roots_now,
         )
+
+        # V8-B1.7 — respawn extinct affinities via seed bank
+        policy.maybe_respawn_extinct_affinities()
 
         # Detect deaths
         cur_alive = {a.agent_id for a in env._agents if a.alive}  # noqa: SLF001
