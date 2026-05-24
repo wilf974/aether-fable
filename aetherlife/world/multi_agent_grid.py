@@ -112,6 +112,8 @@ class _AgentState:
     seeds: int = 0
     # V7 — biais comportementaux hérités/mutés (None = pas de traits, behavior neutre)
     traits: AgentTraits | None = None
+    # V8-B1.6 — affinity écologique héritée (None = pas de spéciation)
+    biome_affinity: int | None = None
 
 
 class MultiAgentFoodGrid:

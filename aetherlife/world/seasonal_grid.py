@@ -468,6 +468,17 @@ class SeasonalMultiAgentFoodGrid:
             self._placement_rng = np.random.default_rng(seed + 2)
         self._step_count = 0
         self._food_mask = np.zeros((self.cfg.rows, self.cfg.cols), dtype=bool)
+        # V8-B1.6 — générer biome_map AVANT le placement des agents
+        # (sinon le pré-calcul affinity_tiles voit l'ancien biome_map)
+        if self.cfg.biomes.enabled:
+            self._biome_map = generate_biome_map(
+                self.cfg.rows, self.cfg.cols, self.cfg.biomes,
+                seed=(seed or 0),
+            )
+        else:
+            self._biome_map = np.zeros(
+                (self.cfg.rows, self.cfg.cols), dtype=np.int8,
+            )
         positions = self._sample_unique_positions(self.cfg.n_agents)
         self._agents = [
             _AgentState(
@@ -485,11 +496,36 @@ class SeasonalMultiAgentFoodGrid:
             if self.cfg.planting.enabled else 0
         )
         tcfg = self.cfg.traits
+        bcfg = self.cfg.biomes
+        # V8-B1.6 — pré-calcul des tiles par biome pour placement
+        # des fondateurs dans leur affinity (évite extinction immédiate)
+        affinity_tiles: dict[int, list[tuple[int, int]]] = {}
+        if bcfg.enabled and bcfg.affinity_enabled:
+            for r in range(self.cfg.rows):
+                for c in range(self.cfg.cols):
+                    b = int(self._biome_map[r, c])
+                    if 0 <= b < 4:  # exclut WATER
+                        affinity_tiles.setdefault(b, []).append((r, c))
+        used_positions: set[tuple[int, int]] = set()
         for a in self._agents:
             a.root_ancestor_id = a.agent_id
             a.seeds = init_seeds
             if tcfg.enabled:
                 a.traits = AgentTraits.random(self._spawn_rng, tcfg)
+            # V8-B1.6 — tirage affinity uniforme ∈ {0..3} pour fondateurs
+            if bcfg.enabled and bcfg.affinity_enabled:
+                # Distribution uniforme via round-robin sur agent_id
+                a.biome_affinity = a.agent_id % 4
+                # Réassigner sa position dans un tile de son biome (si possible)
+                tiles = affinity_tiles.get(a.biome_affinity, [])
+                # Filtrer ceux déjà utilisés
+                free_tiles = [t for t in tiles if t not in used_positions]
+                if free_tiles:
+                    idx = int(self._placement_rng.integers(0, len(free_tiles)))
+                    a.pos = free_tiles[idx]
+                    used_positions.add(a.pos)
+                else:
+                    used_positions.add(a.pos)
         self._next_agent_id = self.cfg.n_agents
         self._lineage = []
         self._births_last_step = []
@@ -509,16 +545,8 @@ class SeasonalMultiAgentFoodGrid:
         self._plants_planted_total = 0
         self._plants_matured_total = 0
         self._last_plant_tick = {}
-        # V8-B1.5 — biome map (worldgen Voronoi) ou plain partout si disabled
-        if self.cfg.biomes.enabled:
-            self._biome_map = generate_biome_map(
-                self.cfg.rows, self.cfg.cols, self.cfg.biomes,
-                seed=(seed or 0),
-            )
-        else:
-            self._biome_map = np.zeros(
-                (self.cfg.rows, self.cfg.cols), dtype=np.int8,
-            )
+        # NOTE V8-B1.6 : biome_map est généré au-dessus, avant placement
+        # des agents, pour permettre placement par affinity.
         self._initial_food_layout()
         self._refresh_temperature()
         return (
@@ -563,10 +591,32 @@ class SeasonalMultiAgentFoodGrid:
 
             # Metabolism modulé par la température locale ET le biome (V8-B1.5)
             local_temp = float(self._temp_field[new_r, new_c])
-            biome_p = biome_params_for(
-                int(self._biome_map[new_r, new_c]), self.cfg.biomes,
-            )
+            tile_biome_id = int(self._biome_map[new_r, new_c])
+            biome_p = biome_params_for(tile_biome_id, self.cfg.biomes)
             local_metabolism = self.cfg.metabolism * biome_p.metabolism_factor
+            local_food_value = self.cfg.food_value * biome_p.food_value_factor
+            # V8-B1.6 — bonus/malus selon affinity héritée
+            bcfg = self.cfg.biomes
+            in_affinity = True
+            if (
+                bcfg.enabled and bcfg.affinity_enabled
+                and agent.biome_affinity is not None
+            ):
+                if tile_biome_id == agent.biome_affinity:
+                    local_metabolism *= bcfg.in_affinity_metabolism
+                    local_food_value *= bcfg.in_affinity_food_value
+                else:
+                    local_metabolism *= bcfg.out_affinity_metabolism
+                    local_food_value *= bcfg.out_affinity_food_value
+                    in_affinity = False
+            # V8-B1.6 — movement_cost amplifié hors affinity (appliqué comme metabolism×)
+            move_cost = biome_p.movement_cost
+            if not in_affinity:
+                move_cost *= bcfg.out_affinity_movement_mult
+            # On applique move_cost comme un multiplicateur du metabolism
+            # uniquement quand le mouvement a effectivement eu lieu
+            if (dr, dc) != (0, 0):
+                local_metabolism *= move_cost
             if local_temp < self.cfg.seasonal.cold_threshold:
                 local_metabolism *= self.cfg.seasonal.cold_metabolism_factor
             # V8-B1.5 — compétition locale : metabolism augmente avec
@@ -586,8 +636,6 @@ class SeasonalMultiAgentFoodGrid:
             ate = bool(self._food_mask[new_r, new_c])
             if ate:
                 self._food_mask[new_r, new_c] = False
-                # V8-B1.5 — food value modulée par biome (tundra=plus nutritif)
-                local_food_value = self.cfg.food_value * biome_p.food_value_factor
                 agent.energy = energy_with_food(
                     agent.energy, local_metabolism,
                     local_food_value, self.cfg.max_energy,
@@ -721,8 +769,13 @@ class SeasonalMultiAgentFoodGrid:
         return obs_dict, rewards, terminated, truncated, infos
 
     def _try_reproductions(self) -> None:
-        """V4 — reproduction auto pour env saisonnier (idem MultiAgentFoodGrid)."""
+        """V4 — reproduction auto pour env saisonnier (idem MultiAgentFoodGrid).
+
+        V8-B1.6 : gating biome-locked. Si affinity_enabled, parent doit
+        être sur un tile de son biome_affinity pour pouvoir se reproduire.
+        """
         rcfg = self.cfg.reproduction
+        bcfg = self.cfg.biomes
         candidates = sorted(
             (a for a in self._agents if a.alive), key=lambda a: a.agent_id
         )
@@ -733,7 +786,19 @@ class SeasonalMultiAgentFoodGrid:
                 continue
             if (self._step_count - parent.last_repro_tick) < rcfg.cooldown_ticks:
                 continue
-            adj = self._find_free_adjacent(parent.pos)
+            # V8-B1.6 — gating biome-locked
+            required_biome: int | None = None
+            if (
+                bcfg.enabled and bcfg.affinity_enabled
+                and bcfg.reproduction_locked_to_affinity
+                and parent.biome_affinity is not None
+            ):
+                parent_tile = int(self._biome_map[parent.pos[0], parent.pos[1]])
+                if parent_tile != parent.biome_affinity:
+                    continue  # parent hors son biome → repro impossible
+                # Enfant doit aussi naître sur un tile de l'affinity
+                required_biome = parent.biome_affinity
+            adj = self._find_free_adjacent(parent.pos, required_biome=required_biome)
             if adj is None:
                 continue
             # V7 — héritage de traits avec mutation gaussienne
@@ -755,6 +820,7 @@ class SeasonalMultiAgentFoodGrid:
                 last_repro_tick=-10**9,
                 root_ancestor_id=parent.root_ancestor_id,   # V5.2 héritage
                 traits=child_traits,                         # V7 héritage+mutation
+                biome_affinity=parent.biome_affinity,        # V8-B1.6 héritage 1:1
             )
             parent.energy -= rcfg.energy_cost
             parent.last_repro_tick = self._step_count
@@ -830,7 +896,17 @@ class SeasonalMultiAgentFoodGrid:
             self._builds_last_step.append(nest)
             nest_pos_set.add(agent.pos)
 
-    def _find_free_adjacent(self, pos: tuple[int, int]) -> tuple[int, int] | None:
+    def _find_free_adjacent(
+        self,
+        pos: tuple[int, int],
+        required_biome: int | None = None,
+    ) -> tuple[int, int] | None:
+        """Cherche un tile adjacent libre.
+
+        V8-B1.6 : si `required_biome` est passé, le tile retourné doit
+        être du biome demandé (utilisé pour reproduction biome-locked,
+        empêche l'enfant de naître dans un biome hostile).
+        """
         r, c = pos
         agent_positions = {a.pos for a in self._agents if a.alive}
         for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
@@ -839,6 +915,9 @@ class SeasonalMultiAgentFoodGrid:
                 continue
             if (nr, nc) in agent_positions:
                 continue
+            if required_biome is not None:
+                if int(self._biome_map[nr, nc]) != required_biome:
+                    continue
             return (nr, nc)
         return None
 

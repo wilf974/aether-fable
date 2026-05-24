@@ -37,17 +37,14 @@ def test_biome_config_defaults() -> None:
     cfg = BiomeConfig()
     assert cfg.enabled is False
     assert cfg.n_seed_points == 8
-    # PLAIN par défaut = neutre
+    # V8-B1.6 : biomes équilibrés (aucun n'est intrinsèquement meilleur)
+    # mais différents (stratégies distinctes requises)
     assert cfg.plain.metabolism_factor == 1.0
-    # FOREST = food abondante
-    assert cfg.forest.food_lambda_factor > 1.0
-    # DESERT = food rare et metabolism élevé
-    assert cfg.desert.food_lambda_factor < 1.0
-    assert cfg.desert.metabolism_factor > 1.0
-    # TUNDRA = food très rare, metabolism très élevé, food_value haut
-    assert cfg.tundra.food_lambda_factor < cfg.desert.food_lambda_factor
-    assert cfg.tundra.metabolism_factor > cfg.desert.metabolism_factor
-    assert cfg.tundra.food_value_factor > 1.0
+    assert cfg.forest.food_lambda_factor > 1.0    # FOREST = food abondante
+    assert cfg.desert.food_lambda_factor < 1.0    # DESERT = food rare
+    assert cfg.desert.food_value_factor > 1.0     # mais food riche (compense)
+    assert cfg.tundra.food_value_factor > 1.0     # TUNDRA = très nutritif
+    assert cfg.tundra.food_lambda_factor < cfg.forest.food_lambda_factor
 
 
 def test_biome_config_validates() -> None:

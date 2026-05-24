@@ -73,9 +73,30 @@ def build_env(seed: int, *, regime: str = "training") -> SeasonalMultiAgentFoodG
         n_agents = 16
         max_pop = 80
         food_respawn_lambda = 0.6
-        metabolism = 0.3   # un poil plus permissif pour absorber biome cost
+        metabolism = 0.3
         start_e = 180.0
         biome_cfg = BiomeConfig(enabled=True, n_seed_points=6)
+        competition_cfg = CompetitionConfig(
+            enabled=True, radius=3,
+            metabolism_per_neighbor=0.03, max_factor=2.0,
+        )
+    elif regime == "speciation":
+        # V8-B1.6 : biomes + affinity héritée + reproduction biome-locked
+        rows = 40
+        cols = 40
+        n_agents = 20    # 5 par affinity en moyenne
+        max_pop = 100
+        food_respawn_lambda = 0.6
+        metabolism = 0.3
+        start_e = 180.0
+        biome_cfg = BiomeConfig(
+            enabled=True, n_seed_points=8, balanced_seeds=True,
+            affinity_enabled=True,
+            in_affinity_metabolism=0.7, in_affinity_food_value=1.3,
+            out_affinity_metabolism=1.5, out_affinity_food_value=0.7,
+            out_affinity_movement_mult=2.5,
+            reproduction_locked_to_affinity=True,
+        )
         competition_cfg = CompetitionConfig(
             enabled=True, radius=3,
             metabolism_per_neighbor=0.03, max_factor=2.0,
@@ -312,6 +333,11 @@ def run_overnight(
         100 * dom[0][1] / max(env.n_alive, 1)
         if dom else 0.0
     )
+    # V8-B1.6 : distribution des affinities vivantes
+    affinity_counts = Counter(
+        a.biome_affinity for a in env._agents  # noqa: SLF001
+        if a.alive and a.biome_affinity is not None
+    )
 
     final_report = {
         "config": {
@@ -363,6 +389,10 @@ def run_overnight(
                 }
                 for r, n in dom
             ],
+            "affinity_distribution": {
+                str(k): v for k, v in affinity_counts.items()
+            },
+            "n_affinities_alive": len(affinity_counts),
         },
         "curves": {
             "alive": alive_curve,
@@ -421,7 +451,7 @@ def main() -> None:
     p.add_argument("--snap-every", type=int, default=5000)
     p.add_argument(
         "--regime", default="training",
-        choices=["training", "darwinian", "niches"],
+        choices=["training", "darwinian", "niches", "speciation"],
     )
     args = p.parse_args()
     run_overnight(
