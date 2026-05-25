@@ -519,6 +519,18 @@ def run_overnight(
         json.dump(final_report, f, indent=2, default=str)
     print(f"\nReport saved : {report_path}")
 
+    # Historian — observer/reporter SANS influence sur les agents.
+    # Si import échoue ou erreur, on continue (fail-safe).
+    try:
+        from aetherlife.historian import Historian
+        run_id = f"seed{seed}_t{n_ticks}_{regime}"
+        historian = Historian.from_report(final_report, run_id=run_id)
+        report_subdir = os.path.join(out_dir, "report")
+        files = historian.write_all(report_subdir)
+        print(f"Historian wrote {len(files)} files to {report_subdir}")
+    except Exception as e:
+        print(f"Historian skipped (fail-safe) : {e}")
+
     print("\n" + "=" * 60)
     print("RAPPORT FINAL V8-B1 — Validation 4 critères")
     print("=" * 60)
