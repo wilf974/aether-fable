@@ -52,7 +52,10 @@ from aetherlife.world.seasonal_grid import (
 from aetherlife.world.vocabulary import VocabularyConfig
 
 
-def build_env(seed: int, *, regime: str = "training") -> SeasonalMultiAgentFoodGrid:
+def build_env(
+    seed: int, *, regime: str = "training",
+    disable_vocalize_after_tick: int | None = None,
+) -> SeasonalMultiAgentFoodGrid:
     """Config selon regime :
 
     - 'training' : permissif, monde homogène (V8-B1).
@@ -152,6 +155,7 @@ def build_env(seed: int, *, regime: str = "training") -> SeasonalMultiAgentFoodG
             enabled=True, n_tokens=4, embedding_dim=16,
             listen_radius=5, mutation_std=0.05,
             vocalize_energy_cost=0.05, social_bonus=0.0,
+            disable_vocalize_after_tick=disable_vocalize_after_tick,
         )
     else:
         vocab_cfg = VocabularyConfig(enabled=False)
@@ -259,9 +263,15 @@ def run_overnight(
     n_ticks: int, seed: int, device: str, out_dir: str,
     snap_every: int = 5000, divergence_every: int = 5000,
     regime: str = "training",
+    disable_vocalize_after_tick: int | None = None,
 ) -> dict:
-    env = build_env(seed, regime=regime)
-    print(f"REGIME={regime}")
+    env = build_env(
+        seed, regime=regime,
+        disable_vocalize_after_tick=disable_vocalize_after_tick,
+    )
+    print(f"REGIME={regime}"
+          + (f"  ABLATION@{disable_vocalize_after_tick}"
+             if disable_vocalize_after_tick is not None else ""))
     # V8-B2.1 — re-stabilisation pour action space étendu (8 actions
     # avec langage). lr plus bas, target sync plus fréquent, epsilon_end
     # légèrement >0 pour exploration résiduelle.
@@ -671,11 +681,17 @@ def main() -> None:
         "--regime", default="training",
         choices=["training", "darwinian", "niches", "speciation", "language"],
     )
+    p.add_argument(
+        "--vocalize-disable-after", type=int, default=None,
+        help="V8-B2.3 — Test d'ablation : si défini, vocalize devient "
+             "no-op après ce tick. Pour tester la fonction du langage.",
+    )
     args = p.parse_args()
     run_overnight(
         n_ticks=args.ticks, seed=args.seed, device=args.device,
         out_dir=args.out_dir, snap_every=args.snap_every,
         regime=args.regime,
+        disable_vocalize_after_tick=args.vocalize_disable_after,
     )
 
 

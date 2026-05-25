@@ -40,6 +40,13 @@ class VocabularyConfig:
     social_bonus: float = 0.0
     social_window_ticks: int = 3
 
+    # V8-B2.3 — Ablation interventionnelle.
+    # Si != None, à partir de ce tick, les actions vocalize deviennent
+    # no-op (pas d'émission, pas de coût énergétique). L'agent peut
+    # toujours CHOISIR l'action, mais rien ne se passe. Test causal
+    # gold standard : couper le canal et observer ce qui s'effondre.
+    disable_vocalize_after_tick: int | None = None
+
     def __post_init__(self) -> None:
         if self.n_tokens <= 0:
             raise ValueError(f"n_tokens doit être > 0 (got {self.n_tokens})")
@@ -71,6 +78,12 @@ class VocabularyConfig:
             raise ValueError(
                 f"vocalize_energy_cost doit être >= 0 "
                 f"(got {self.vocalize_energy_cost})"
+            )
+        if (self.disable_vocalize_after_tick is not None
+                and self.disable_vocalize_after_tick < 0):
+            raise ValueError(
+                f"disable_vocalize_after_tick doit être >= 0 ou None "
+                f"(got {self.disable_vocalize_after_tick})"
             )
 
 

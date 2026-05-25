@@ -590,11 +590,16 @@ class SeasonalMultiAgentFoodGrid:
             # V8-B2.0 — actions ≥ 4 sont des vocalize (pas mouvement)
             if action_id >= 4 and self.cfg.vocabulary.enabled:
                 token_id = action_id - 4
-                if 0 <= token_id < self.cfg.vocabulary.n_tokens:
+                vcfg = self.cfg.vocabulary
+                # V8-B2.3 — ablation interventionnelle : vocalize devient
+                # no-op après le seuil (pas d'émission, pas de coût)
+                ablation_active = (
+                    vcfg.disable_vocalize_after_tick is not None
+                    and self._step_count > vcfg.disable_vocalize_after_tick
+                )
+                if 0 <= token_id < vcfg.n_tokens and not ablation_active:
                     self._tokens_this_tick[agent.agent_id] = token_id
-                    # V8-B2.0 — coût énergétique : parler consomme de l'énergie.
-                    # Force la sélection naturelle vers tokens utiles uniquement.
-                    agent.energy -= self.cfg.vocabulary.vocalize_energy_cost
+                    agent.energy -= vcfg.vocalize_energy_cost
                 # Vocalize ne fait pas bouger ; l'agent reste sur place
                 # mais subit le metabolism du tile courant
                 dr, dc = 0, 0
