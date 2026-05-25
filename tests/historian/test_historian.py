@@ -104,6 +104,88 @@ def test_detect_dialects_emerging() -> None:
     assert "concentration_per_lineage" in d.evidence
 
 
+# ─── V8-B2.2 causality detectors ────────────────────────────────────────
+
+
+def _report_causality_strong() -> dict:
+    """Stub avec signal causal fort (shift max 0.12, context 0.58)."""
+    return {
+        "config": {"n_ticks": 30000, "seed": 42, "device": "cpu"},
+        "runtime": {"duration_s": 1900, "ticks_per_sec": 15},
+        "criterion_3_selection": {
+            "n_lineages_initial": 20, "n_lineages_final": 4,
+            "dominant_lineage_pct": 95.0,
+        },
+        "final_state": {
+            "n_alive": 100, "n_births_total": 700, "n_deaths": 600,
+            "top_lineages": [{"root_id": 1, "alive": 95, "pct": 95.0}],
+        },
+        "language_metrics_v8b2": {
+            "mean_token_lineage_concentration": 0.99,
+            "mean_inter_lineage_distance": 3.0,
+            "entropy_ratio": 0.75,
+            "total_vocalize_count": 500000,
+            "per_token_usage_top": {"0": 130000, "1": 120000, "2": 130000, "3": 120000},
+        },
+        "language_causality_v8b2_2": {
+            "listener_shift_mean": 0.086,
+            "listener_shift_max": 0.121,
+            "listener_shift_per_token": {"0": 0.121, "1": 0.075, "2": 0.063, "3": 0.084},
+            "context_consistency_mean": 0.47,
+            "context_consistency_per_token": {"0": 0.48, "1": 0.45, "2": 0.49, "3": 0.46},
+            "n_emissions_total": 1000000,
+            "verdict": "intermediaire",
+        },
+        "curves": {"alive": [], "lineages": [], "loss": [], "divergence": []},
+    }
+
+
+def test_detect_causality_signal_present() -> None:
+    det = DiscoveriesDetector(_report_causality_strong())
+    found = det.detect_causality()
+    slugs = [d.slug for d in found]
+    assert "causality_signal_present" in slugs
+
+
+def test_detect_causality_signal_strong() -> None:
+    """shift_max > 0.10 → signal fort détecté."""
+    det = DiscoveriesDetector(_report_causality_strong())
+    found = det.detect_causality()
+    slugs = [d.slug for d in found]
+    assert "causality_signal_strong" in slugs
+    d = next(x for x in found if x.slug == "causality_signal_strong")
+    assert "0" in d.headline  # token 0 mentionné
+
+
+def test_detect_causality_context_specialization() -> None:
+    """context 0.47 sur 72 clusters = ×34 baseline → spécialisation détectée."""
+    det = DiscoveriesDetector(_report_causality_strong())
+    found = det.detect_causality()
+    slugs = [d.slug for d in found]
+    assert "causality_context_specialization" in slugs
+
+
+def test_detect_causality_skip_if_no_emissions() -> None:
+    report = _report_causality_strong()
+    report["language_causality_v8b2_2"]["n_emissions_total"] = 100
+    det = DiscoveriesDetector(report)
+    found = det.detect_causality()
+    # Pas assez d'émissions → aucun pattern détecté
+    assert found == []
+
+
+def test_detect_causality_decorative_signal_low() -> None:
+    """shift très bas + context bas → aucun pattern détecté."""
+    report = _report_causality_strong()
+    report["language_causality_v8b2_2"]["listener_shift_mean"] = 0.001
+    report["language_causality_v8b2_2"]["listener_shift_max"] = 0.002
+    report["language_causality_v8b2_2"]["context_consistency_mean"] = 0.05
+    det = DiscoveriesDetector(report)
+    found = det.detect_causality()
+    # Aucun pattern (shift < 0.03 ET context < 0.30, ratio < 10)
+    assert found == []
+
+
 def test_detect_extinction_terminal() -> None:
     det = DiscoveriesDetector(_report_extinction())
     found = det.detect_extinction()

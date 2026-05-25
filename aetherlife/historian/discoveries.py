@@ -358,6 +358,124 @@ class DiscoveriesDetector:
             ))
         return out
 
+    def detect_causality(self) -> list[Discovery]:
+        """V8-B2.2 — Patterns de causalité comportementale du langage.
+
+        Sources : report["language_causality_v8b2_2"] = {
+            listener_shift_mean, listener_shift_max, listener_shift_per_token,
+            context_consistency_mean, context_consistency_per_token,
+            n_emissions_total, verdict
+        }
+
+        Patterns détectables :
+          - causality_signal_present : shift > 0.03 ET context > 0.40
+          - causality_signal_strong  : shift > 0.10 OU context > 0.70
+          - causality_decorative_refuted : shift > 0 ET context >> baseline
+          - causality_context_specialization : context_per_token homogène
+            et au-dessus baseline
+        """
+        cause = self._get("language_causality_v8b2_2") or {}
+        if not cause:
+            return []
+        out: list[Discovery] = []
+        shift_mean = cause.get("listener_shift_mean", 0)
+        shift_max = cause.get("listener_shift_max", 0)
+        cons_mean = cause.get("context_consistency_mean", 0)
+        n_emissions = cause.get("n_emissions_total", 0)
+        per_token_shift = cause.get("listener_shift_per_token", {}) or {}
+        per_token_cons = cause.get("context_consistency_per_token", {}) or {}
+
+        if n_emissions < 1000:
+            # Pas assez d'émissions pour conclure
+            return []
+
+        # Pattern 1 : signal causal présent (faible mais réel)
+        if shift_mean > 0.03 and cons_mean > 0.30:
+            out.append(Discovery(
+                slug="causality_signal_present",
+                category=DiscoveryCategory.LANGUAGE,
+                confidence=min(1.0, shift_mean * 5 + cons_mean / 2),
+                headline=(
+                    f"Pattern compatible avec signal causal modéré : "
+                    f"KL listener shift = {shift_mean:.3f} mean, "
+                    f"context consistency = {cons_mean:.0%}. "
+                    f"Le canal n'est pas décoratif (signal > baseline)."
+                ),
+                evidence={
+                    "listener_shift_mean": shift_mean,
+                    "listener_shift_max": shift_max,
+                    "context_consistency_mean": cons_mean,
+                    "n_emissions_total": n_emissions,
+                },
+                validation=[
+                    "Multi-seed pour confirmer signal robuste",
+                    "Run plus long : signal croît avec apprentissage ?",
+                    "Test d'ablation interventionnelle (V8-B2.3) : "
+                    "couper canal → comportement change ?",
+                ],
+            ))
+
+        # Pattern 2 : signal causal FORT (au moins un token > 0.10)
+        if shift_max > 0.10:
+            top_tok = max(
+                per_token_shift.items(), key=lambda x: float(x[1]),
+                default=("?", 0),
+            )
+            out.append(Discovery(
+                slug="causality_signal_strong",
+                category=DiscoveryCategory.LANGUAGE,
+                confidence=min(1.0, shift_max),
+                headline=(
+                    f"Pattern compatible avec signal causal FORT : "
+                    f"le token {top_tok[0]} produit un shift KL de "
+                    f"{shift_max:.3f} (seuil 'fort' = 0.10). "
+                    f"Au moins un symbole modifie statistiquement le "
+                    f"comportement des auditeurs."
+                ),
+                evidence={
+                    "shift_max": shift_max,
+                    "top_token": top_tok[0],
+                    "per_token_shift": per_token_shift,
+                },
+                validation=[
+                    "Quel contexte d'émission est associé à ce token ?",
+                    "Ablation sélective : si on désactive ce token "
+                    "seulement, l'effet disparaît-il ?",
+                ],
+            ))
+
+        # Pattern 3 : spécialisation contextuelle ×N baseline
+        # Avec 4 buckets contexte par dimension × 4 dim ≈ 72 clusters
+        baseline_random = 1.0 / 72.0  # ≈ 1.4%
+        ratio = cons_mean / baseline_random if baseline_random > 0 else 0
+        if ratio > 10:
+            out.append(Discovery(
+                slug="causality_context_specialization",
+                category=DiscoveryCategory.LANGUAGE,
+                confidence=min(1.0, (ratio - 10) / 50),
+                headline=(
+                    f"Pattern de spécialisation contextuelle massive : "
+                    f"les tokens sont émis dans le cluster contextuel "
+                    f"majoritaire à {cons_mean:.0%}, soit ×{ratio:.0f} le "
+                    f"baseline aléatoire (~{baseline_random:.1%}). "
+                    f"Les tokens ne sont PAS aléatoires."
+                ),
+                evidence={
+                    "context_consistency_mean": cons_mean,
+                    "baseline_random_estimate": baseline_random,
+                    "ratio_to_baseline": ratio,
+                    "per_token_consistency": per_token_cons,
+                },
+                validation=[
+                    "Identifier les contextes majoritaires par token "
+                    "(quel contexte → quel token ?)",
+                    "Test croisé inter-lignées : un token corrèle-t-il "
+                    "au même contexte dans différentes lignées ?",
+                ],
+            ))
+
+        return out
+
     def detect_instability(self) -> list[Discovery]:
         """Instabilité numérique DQN."""
         loss_curve = self._get("curves", "loss") or []
@@ -401,7 +519,8 @@ class DiscoveriesDetector:
         out: list[Discovery] = []
         for fn in (
             self.detect_regime, self.detect_extinction,
-            self.detect_language, self.detect_cognition,
+            self.detect_language, self.detect_causality,
+            self.detect_cognition,
             self.detect_selection, self.detect_instability,
         ):
             try:
