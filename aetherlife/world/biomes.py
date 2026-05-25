@@ -111,6 +111,13 @@ class BiomeConfig:
     # V8-B1.6 — Worldgen équilibré (force ≥1 seed de chaque type)
     balanced_seeds: bool = False
 
+    # V8-C2 — Food invisible (seul listen peut la révéler).
+    # Si True, le canal "food" de l'observation égocentrique est masqué
+    # sauf pour la tile centrale (sous l'agent). L'agent ne peut donc
+    # PAS voir la food à distance, seulement la consommer en marchant
+    # dessus OU être guidé par les vocalises des voisins.
+    hidden_food: bool = False
+
     # V8-B1.7 — Seed bank + respawn affinities éteintes
     respawn_enabled: bool = False
     respawn_check_every: int = 100        # check tous les N ticks

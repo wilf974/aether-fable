@@ -70,6 +70,12 @@ def egocentric_obs(
     nest_set = {n.pos for n in env.nests.values()}
     plants = getattr(env, "plants", {})
     agents = env._agents  # noqa: SLF001
+    # V8-C2 — food masquée à la vue sauf sur la tile centrale (l'agent
+    # ne sait pas où est la food à distance, seule le listen peut le
+    # révéler via les vocalises des voisins). Mécanique manger préservée.
+    hidden_food = getattr(
+        getattr(env.cfg, "biomes", None), "hidden_food", False,
+    )
     for dr in range(-r, r + 1):
         for dc in range(-r, r + 1):
             gr = ar + dr
@@ -77,8 +83,12 @@ def egocentric_obs(
             if not (0 <= gr < rows and 0 <= gc < cols):
                 continue
             i, j = dr + r, dc + r
+            # V8-C2 : food visible UNIQUEMENT sur la tile centrale si masqué
             if food_mask[gr, gc]:
-                food_view[i, j] = 1.0
+                if hidden_food and (dr, dc) != (0, 0):
+                    pass  # food invisible à distance
+                else:
+                    food_view[i, j] = 1.0
             if (gr, gc) in nest_set:
                 nest_view[i, j] = 1.0
             if (gr, gc) in plants:

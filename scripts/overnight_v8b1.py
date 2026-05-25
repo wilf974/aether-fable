@@ -141,13 +141,11 @@ def build_env(
             enabled=True, radius=3,
             metabolism_per_neighbor=0.03, max_factor=2.0,
         )
-    elif regime == "coordination":
-        # V8-C1 : ressources invisibles éloignées
-        # Identique à 'language' mais : vision_radius 2 (au lieu de 5),
-        # listen_radius 10 (au lieu de 5). Le silence devient coûteux car
-        # l'info ne peut plus venir QUE de la communication.
-        # (vision et listen sont gérés dans BrainConfig et VocabularyConfig
-        # plus loin dans le code de run_overnight)
+    elif regime in ("coordination", "coordination_hidden"):
+        # V8-C1 : ressources invisibles éloignées (vision=2, listen=10)
+        # V8-C2 : V8-C1 + food invisible (hidden_food=True dans BiomeConfig)
+        #         L'agent ne voit la food que SOUS lui. Seuls les vocalises
+        #         d'agents qui voient peuvent indiquer la position.
         rows = 40
         cols = 40
         n_agents = 20
@@ -168,6 +166,8 @@ def build_env(
             respawn_threshold=2,
             respawn_initial_energy=200.0,
             seed_bank_max_per_affinity=2,
+            # V8-C2 : food invisible à la vue
+            hidden_food=(regime == "coordination_hidden"),
         )
         competition_cfg = CompetitionConfig(
             enabled=True, radius=3,
@@ -189,9 +189,11 @@ def build_env(
             vocalize_energy_cost=0.05, social_bonus=0.0,
             disable_vocalize_after_tick=disable_vocalize_after_tick,
         )
-    elif regime == "coordination":
-        # V8-C1 : listen_radius=10 (vs vision_radius=2 dans BrainConfig)
+    elif regime in ("coordination", "coordination_hidden"):
+        # V8-C1/C2 : listen_radius=10 (vs vision_radius=2 dans BrainConfig)
         # Le canal devient le seul vecteur d'info à distance.
+        # En C2 (hidden_food), même la food locale n'est pas visible :
+        # seul l'embedding heard peut suggérer la présence.
         vocab_cfg = VocabularyConfig(
             enabled=True, n_tokens=4, embedding_dim=16,
             listen_radius=10, mutation_std=0.05,
@@ -316,10 +318,10 @@ def run_overnight(
     # V8-B2.1 — re-stabilisation pour action space étendu (8 actions
     # avec langage). lr plus bas, target sync plus fréquent, epsilon_end
     # légèrement >0 pour exploration résiduelle.
-    # V8-C1 : vision réduite (2 cases) en régime coordination → l'agent
+    # V8-C1/C2 : vision réduite (2 cases) en régimes coordination → l'agent
     # ne voit que ses voisins immédiats. Le langage devient le seul
     # canal d'info à distance.
-    vision_radius = 2 if regime == "coordination" else 4
+    vision_radius = 2 if regime in ("coordination", "coordination_hidden") else 4
     cfg = BrainConfig(
         enabled=True, device=device, vision_radius=vision_radius,
         hidden_dims=(64, 64), lr=1e-4, batch_size=64,
@@ -726,7 +728,7 @@ def main() -> None:
         "--regime", default="training",
         choices=[
             "training", "darwinian", "niches", "speciation",
-            "language", "coordination",
+            "language", "coordination", "coordination_hidden",
         ],
     )
     p.add_argument(
