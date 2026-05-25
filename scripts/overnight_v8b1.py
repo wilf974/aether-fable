@@ -261,12 +261,15 @@ def run_overnight(
 ) -> dict:
     env = build_env(seed, regime=regime)
     print(f"REGIME={regime}")
+    # V8-B2.1 — re-stabilisation pour action space étendu (8 actions
+    # avec langage). lr plus bas, target sync plus fréquent, epsilon_end
+    # légèrement >0 pour exploration résiduelle.
     cfg = BrainConfig(
         enabled=True, device=device, vision_radius=4,
-        hidden_dims=(64, 64), lr=5e-4, batch_size=64,
+        hidden_dims=(64, 64), lr=1e-4, batch_size=64,
         buffer_capacity=50_000, min_replay_to_learn=500, train_every=4,
-        epsilon_start=0.6, epsilon_end=0.05, epsilon_decay_steps=30_000,
-        target_sync_steps=300, mutation_std=0.03,
+        epsilon_start=0.6, epsilon_end=0.08, epsilon_decay_steps=30_000,
+        target_sync_steps=200, mutation_std=0.03,
     )
     policy = LineageAgent(env=env, cfg=cfg, n_actions=4, seed=seed)
     print(f"OBS_DIM={policy.obs_dim}  device={cfg.device}  brains={len(policy.registry)}")
