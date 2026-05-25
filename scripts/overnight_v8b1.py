@@ -141,18 +141,32 @@ def build_env(
             enabled=True, radius=3,
             metabolism_per_neighbor=0.03, max_factor=2.0,
         )
-    elif regime in ("coordination", "coordination_hidden"):
+    elif regime in ("coordination", "coordination_hidden", "coordination_hard"):
         # V8-C1 : ressources invisibles éloignées (vision=2, listen=10)
         # V8-C2 : V8-C1 + food invisible (hidden_food=True dans BiomeConfig)
-        #         L'agent ne voit la food que SOUS lui. Seuls les vocalises
-        #         d'agents qui voient peuvent indiquer la position.
+        # V8-C2.b : V8-C2 + ECO DUR (max_pop=50, winter=0.3, respawn=1)
+        #          pour faire émerger la pression où la communication compte.
         rows = 40
         cols = 40
         n_agents = 20
-        max_pop = 100
-        food_respawn_lambda = 0.6
-        metabolism = 0.3
-        start_e = 200.0   # +20 pour absorber le cold-start avec moins d'info
+        if regime == "coordination_hard":
+            # V8-C2.b'' : minimal hardening (V8-C2.b et b' trop durs).
+            # Garder tout V8-C2 mais juste réduire max_pop de 100 → 80.
+            # → moins de filet, plus de sensibilité à la coordination,
+            # mais survie initiale possible.
+            max_pop = 80
+            food_respawn_lambda = 0.55
+            metabolism = 0.3
+            winter_f = 0.5
+            respawn_thr = 2
+            start_e = 200.0
+        else:
+            max_pop = 100
+            food_respawn_lambda = 0.6
+            metabolism = 0.3
+            winter_f = 0.5
+            respawn_thr = 2
+            start_e = 200.0
         biome_cfg = BiomeConfig(
             enabled=True, n_seed_points=8, balanced_seeds=True,
             affinity_enabled=True,
@@ -163,11 +177,11 @@ def build_env(
             respawn_enabled=True,
             respawn_check_every=200,
             respawn_extinct_after_ticks=3000,
-            respawn_threshold=2,
+            respawn_threshold=respawn_thr,
             respawn_initial_energy=200.0,
             seed_bank_max_per_affinity=2,
-            # V8-C2 : food invisible à la vue
-            hidden_food=(regime == "coordination_hidden"),
+            # V8-C2/V8-C2.b : food invisible à la vue
+            hidden_food=(regime in ("coordination_hidden", "coordination_hard")),
         )
         competition_cfg = CompetitionConfig(
             enabled=True, radius=3,
@@ -189,11 +203,10 @@ def build_env(
             vocalize_energy_cost=0.05, social_bonus=0.0,
             disable_vocalize_after_tick=disable_vocalize_after_tick,
         )
-    elif regime in ("coordination", "coordination_hidden"):
-        # V8-C1/C2 : listen_radius=10 (vs vision_radius=2 dans BrainConfig)
-        # Le canal devient le seul vecteur d'info à distance.
-        # En C2 (hidden_food), même la food locale n'est pas visible :
-        # seul l'embedding heard peut suggérer la présence.
+    elif regime in (
+        "coordination", "coordination_hidden", "coordination_hard",
+    ):
+        # V8-C1/C2/C2.b : listen_radius=10 (vs vision_radius=2)
         vocab_cfg = VocabularyConfig(
             enabled=True, n_tokens=4, embedding_dim=16,
             listen_radius=10, mutation_std=0.05,
@@ -318,10 +331,10 @@ def run_overnight(
     # V8-B2.1 — re-stabilisation pour action space étendu (8 actions
     # avec langage). lr plus bas, target sync plus fréquent, epsilon_end
     # légèrement >0 pour exploration résiduelle.
-    # V8-C1/C2 : vision réduite (2 cases) en régimes coordination → l'agent
-    # ne voit que ses voisins immédiats. Le langage devient le seul
-    # canal d'info à distance.
-    vision_radius = 2 if regime in ("coordination", "coordination_hidden") else 4
+    # V8-C1/C2/C2.b : vision réduite (2 cases) en régimes coordination
+    vision_radius = 2 if regime in (
+        "coordination", "coordination_hidden", "coordination_hard",
+    ) else 4
     cfg = BrainConfig(
         enabled=True, device=device, vision_radius=vision_radius,
         hidden_dims=(64, 64), lr=1e-4, batch_size=64,
@@ -729,6 +742,7 @@ def main() -> None:
         choices=[
             "training", "darwinian", "niches", "speciation",
             "language", "coordination", "coordination_hidden",
+            "coordination_hard",
         ],
     )
     p.add_argument(
