@@ -59,10 +59,13 @@ class BrainConfig:
     # Observation (égocentrique)
     vision_radius: int = 5       # 11×11 fenêtre
 
-    # V8-B1.8 — stabilisation RL anti-divergence
+    # V8-B1.9 — stabilisation RL anti-divergence (compromis signal/stabilité)
+    # Reward clip [-5, +5] : signal "mort=-5" distinct de "faim=-0.04",
+    # manger food (+1.8) pas écrasé. Grad clip et loss guard protègent
+    # contre divergence numérique sans étouffer le signal.
     reward_clip_enabled: bool = True
-    reward_clip_low: float = -1.0
-    reward_clip_high: float = 1.0
+    reward_clip_low: float = -5.0
+    reward_clip_high: float = 5.0
     grad_clip_norm: float = 1.0            # clip_grad_norm_ max_norm
     loss_max_threshold: float = 100.0      # skip step si loss > threshold
     skip_invalid_updates: bool = True      # skip step si loss NaN/Inf

@@ -34,8 +34,9 @@ def _cfg(**kwargs) -> BrainConfig:
 def test_brain_config_v8b18_defaults() -> None:
     cfg = BrainConfig()
     assert cfg.reward_clip_enabled is True
-    assert cfg.reward_clip_low == -1.0
-    assert cfg.reward_clip_high == 1.0
+    # V8-B1.9 : compromis [-5, +5] (signal large + stabilité par grad_clip)
+    assert cfg.reward_clip_low == -5.0
+    assert cfg.reward_clip_high == 5.0
     assert cfg.grad_clip_norm == 1.0
     assert cfg.loss_max_threshold == 100.0
     assert cfg.skip_invalid_updates is True
@@ -54,24 +55,23 @@ def test_brain_config_v8b18_validates() -> None:
 
 
 def test_reward_clipping_high_value() -> None:
-    """Un reward de +100 doit être clippé à reward_clip_high (1.0 par défaut)."""
+    """Un reward de +100 doit être clippé à reward_clip_high."""
     cfg = _cfg(reward_clip_enabled=True,
-               reward_clip_low=-1.0, reward_clip_high=1.0)
+               reward_clip_low=-5.0, reward_clip_high=5.0)
     brain = LineageBrain(root_id=0, obs_dim=10, n_actions=4, cfg=cfg, seed=0)
     obs = np.zeros(10, dtype=np.float32)
     brain.observe(obs, 0, 100.0, obs, False)
-    # Vérifier que le buffer contient 1.0 et pas 100.0
-    # ReplayBuffer expose `rewards` array
-    assert brain.buffer._rewards[0] == pytest.approx(1.0)  # noqa: SLF001
+    # Vérifier que le buffer contient 5.0 et pas 100.0
+    assert brain.buffer._rewards[0] == pytest.approx(5.0)  # noqa: SLF001
 
 
 def test_reward_clipping_low_value() -> None:
     cfg = _cfg(reward_clip_enabled=True,
-               reward_clip_low=-1.0, reward_clip_high=1.0)
+               reward_clip_low=-5.0, reward_clip_high=5.0)
     brain = LineageBrain(root_id=0, obs_dim=10, n_actions=4, cfg=cfg, seed=0)
     obs = np.zeros(10, dtype=np.float32)
     brain.observe(obs, 0, -50.0, obs, False)
-    assert brain.buffer._rewards[0] == pytest.approx(-1.0)  # noqa: SLF001
+    assert brain.buffer._rewards[0] == pytest.approx(-5.0)  # noqa: SLF001
 
 
 def test_reward_clipping_disabled_preserves_value() -> None:
