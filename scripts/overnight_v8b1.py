@@ -48,6 +48,7 @@ from aetherlife.world.reproduction import ReproductionConfig
 from aetherlife.world.seasonal_grid import (
     SeasonalConfig, SeasonalMultiAgentConfig, SeasonalMultiAgentFoodGrid,
 )
+from aetherlife.world.vocabulary import VocabularyConfig
 
 
 def build_env(seed: int, *, regime: str = "training") -> SeasonalMultiAgentFoodGrid:
@@ -97,7 +98,6 @@ def build_env(seed: int, *, regime: str = "training") -> SeasonalMultiAgentFoodG
             out_affinity_metabolism=1.5, out_affinity_food_value=0.7,
             out_affinity_movement_mult=2.5,
             reproduction_locked_to_affinity=True,
-            # V8-B1.7 — respawn anti-extinction
             respawn_enabled=True,
             respawn_check_every=200,
             respawn_extinct_after_ticks=3000,
@@ -105,6 +105,33 @@ def build_env(seed: int, *, regime: str = "training") -> SeasonalMultiAgentFoodG
             respawn_initial_energy=200.0,
             seed_bank_max_per_affinity=2,
             seed_bank_mutation_std=0.05,
+        )
+        competition_cfg = CompetitionConfig(
+            enabled=True, radius=3,
+            metabolism_per_neighbor=0.03, max_factor=2.0,
+        )
+    elif regime == "language":
+        # V8-B2.0 : speciation + vocabulary émergent (pas de reward direct)
+        rows = 40
+        cols = 40
+        n_agents = 20
+        max_pop = 100
+        food_respawn_lambda = 0.6
+        metabolism = 0.3
+        start_e = 180.0
+        biome_cfg = BiomeConfig(
+            enabled=True, n_seed_points=8, balanced_seeds=True,
+            affinity_enabled=True,
+            in_affinity_metabolism=0.7, in_affinity_food_value=1.3,
+            out_affinity_metabolism=1.5, out_affinity_food_value=0.7,
+            out_affinity_movement_mult=2.5,
+            reproduction_locked_to_affinity=True,
+            respawn_enabled=True,
+            respawn_check_every=200,
+            respawn_extinct_after_ticks=3000,
+            respawn_threshold=2,
+            respawn_initial_energy=200.0,
+            seed_bank_max_per_affinity=2,
         )
         competition_cfg = CompetitionConfig(
             enabled=True, radius=3,
@@ -118,6 +145,15 @@ def build_env(seed: int, *, regime: str = "training") -> SeasonalMultiAgentFoodG
         food_respawn_lambda = 0.25
         biome_cfg = BiomeConfig(enabled=False)
         competition_cfg = CompetitionConfig(enabled=False)
+    # V8-B2.0 — vocabulary activée seulement en mode language
+    if regime == "language":
+        vocab_cfg = VocabularyConfig(
+            enabled=True, n_tokens=4, embedding_dim=16,
+            listen_radius=5, mutation_std=0.05,
+            vocalize_energy_cost=0.05, social_bonus=0.0,
+        )
+    else:
+        vocab_cfg = VocabularyConfig(enabled=False)
     cfg = SeasonalMultiAgentConfig(
         rows=rows, cols=cols, n_agents=n_agents,
         max_energy=300.0, start_energy=start_e,
@@ -142,6 +178,7 @@ def build_env(seed: int, *, regime: str = "training") -> SeasonalMultiAgentFoodG
         planting=PlantingConfig(enabled=False),
         biomes=biome_cfg,
         competition=competition_cfg,
+        vocabulary=vocab_cfg,
     )
     env = SeasonalMultiAgentFoodGrid(cfg)
     env.reset(seed=seed)
@@ -235,7 +272,7 @@ def run_overnight(
     print(f"OBS_DIM={policy.obs_dim}  device={cfg.device}  brains={len(policy.registry)}")
 
     last_ego: dict[int, np.ndarray] = {
-        a.agent_id: egocentric_obs(env, a, cfg.vision_radius)
+        a.agent_id: policy.make_obs(a)
         for a in env._agents  # noqa: SLF001
         if a.alive
     }
@@ -273,7 +310,7 @@ def run_overnight(
                 continue
             roots_now[a.agent_id] = a.root_ancestor_id
             if a.alive:
-                next_ego[a.agent_id] = egocentric_obs(env, a, cfg.vision_radius)
+                next_ego[a.agent_id] = policy.make_obs(a)
                 rewards[a.agent_id] = (a.energy - e_before[a.agent_id]) * 0.1
                 dones[a.agent_id] = False
             else:
@@ -304,7 +341,7 @@ def run_overnight(
         # Update last_ego pour next tick
         for a in env._agents:  # noqa: SLF001
             if a.alive and a.agent_id not in last_ego:
-                last_ego[a.agent_id] = egocentric_obs(env, a, cfg.vision_radius)
+                last_ego[a.agent_id] = policy.make_obs(a)
         last_ego = next_ego
 
         # Snapshots periodiques
@@ -350,6 +387,65 @@ def run_overnight(
         a.biome_affinity for a in env._agents  # noqa: SLF001
         if a.alive and a.biome_affinity is not None
     )
+
+    # V8-B2.0 — métriques d'émergence du langage (PAS de traduction sémantique,
+    # uniquement observations probabilistes)
+    language_metrics: dict = {}
+    if env.cfg.vocabulary.enabled:
+        brains_with_vocab = [b for b in policy.registry if b.vocabulary is not None]
+        if brains_with_vocab:
+            total_tokens = sum(
+                int(b.vocabulary.usage_count.sum()) for b in brains_with_vocab
+            )
+            # tokens_per_1000_ticks
+            tokens_per_1000 = (
+                1000 * total_tokens / max(n_ticks, 1)
+            )
+            # vocalize_energy_cost_total (estimation)
+            energy_total = total_tokens * env.cfg.vocabulary.vocalize_energy_cost
+            # token_lineage_concentration : pour chaque token, % d'usage
+            # concentré dans une seule lignée
+            n_tokens = env.cfg.vocabulary.n_tokens
+            concentrations = []
+            for tok in range(n_tokens):
+                per_lineage = {
+                    b.root_id: int(b.vocabulary.usage_count[tok])
+                    for b in brains_with_vocab
+                }
+                tot = sum(per_lineage.values())
+                if tot > 0:
+                    max_share = max(per_lineage.values()) / tot
+                    concentrations.append(max_share)
+            mean_concentration = (
+                float(np.mean(concentrations)) if concentrations else 0.0
+            )
+            # entropies usage par lignée
+            entropies = [b.vocabulary.usage_entropy() for b in brains_with_vocab]
+            mean_entropy = float(np.mean(entropies)) if entropies else 0.0
+            # divergence linguistique inter-lignées (L2 entre vocabularies)
+            distances = []
+            for i, b1 in enumerate(brains_with_vocab):
+                for b2 in brains_with_vocab[i + 1:]:
+                    distances.append(b1.vocabulary.distance_to(b2.vocabulary))
+            mean_distance = float(np.mean(distances)) if distances else 0.0
+            language_metrics = {
+                "n_brains_with_vocab": len(brains_with_vocab),
+                "total_vocalize_count": total_tokens,
+                "tokens_per_1000_ticks": tokens_per_1000,
+                "vocalize_energy_cost_total": energy_total,
+                "mean_token_lineage_concentration": mean_concentration,
+                "mean_usage_entropy": mean_entropy,
+                "max_possible_entropy": float(np.log(n_tokens)),
+                "entropy_ratio": mean_entropy / max(float(np.log(n_tokens)), 1e-9),
+                "mean_inter_lineage_distance": mean_distance,
+                "per_token_usage_top": {
+                    str(t): sum(
+                        int(b.vocabulary.usage_count[t])
+                        for b in brains_with_vocab
+                    )
+                    for t in range(n_tokens)
+                },
+            }
 
     final_report = {
         "config": {
@@ -406,6 +502,7 @@ def run_overnight(
             },
             "n_affinities_alive": len(affinity_counts),
         },
+        "language_metrics_v8b2": language_metrics,
         "curves": {
             "alive": alive_curve,
             "lineages": lineages_curve,
@@ -451,6 +548,21 @@ def run_overnight(
     print(f"  Total brain_steps cumulés : {policy.registry.total_global_steps()}")
     print(f"  (test isolé gen0 vs genN à compléter en analyse post)")
 
+    # V8-B2.0 — Métriques émergence du langage
+    if language_metrics:
+        print(f"\n--- LANGUAGE EMERGENCE V8-B2 (observations probabilistes) ---")
+        print(f"  Total vocalize : {language_metrics['total_vocalize_count']}")
+        print(f"  Tokens / 1000 ticks : {language_metrics['tokens_per_1000_ticks']:.1f}")
+        print(f"  Energy cost total (vocalize) : {language_metrics['vocalize_energy_cost_total']:.1f}")
+        print(f"  Usage entropy mean : {language_metrics['mean_usage_entropy']:.3f} / max {language_metrics['max_possible_entropy']:.3f}")
+        print(f"  Entropy ratio : {language_metrics['entropy_ratio']:.2%}")
+        print(f"  Concentration par lignée moy : {language_metrics['mean_token_lineage_concentration']:.2%}")
+        print(f"  Distance L2 inter-lignées : {language_metrics['mean_inter_lineage_distance']:.2f}")
+        print(f"  Per-token usage : {language_metrics['per_token_usage_top']}")
+        print(f"\n  NOTE : pas de traduction sémantique, juste corrélations.")
+        print(f"  'Un token émerge' = usage non aléatoire, concentré par lignée,")
+        print(f"  corrélé à un contexte, et modifiant indirectement la survie.")
+
     return final_report
 
 
@@ -463,7 +575,7 @@ def main() -> None:
     p.add_argument("--snap-every", type=int, default=5000)
     p.add_argument(
         "--regime", default="training",
-        choices=["training", "darwinian", "niches", "speciation"],
+        choices=["training", "darwinian", "niches", "speciation", "language"],
     )
     args = p.parse_args()
     run_overnight(
