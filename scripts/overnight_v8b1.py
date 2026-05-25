@@ -141,6 +141,38 @@ def build_env(
             enabled=True, radius=3,
             metabolism_per_neighbor=0.03, max_factor=2.0,
         )
+    elif regime == "coordination":
+        # V8-C1 : ressources invisibles éloignées
+        # Identique à 'language' mais : vision_radius 2 (au lieu de 5),
+        # listen_radius 10 (au lieu de 5). Le silence devient coûteux car
+        # l'info ne peut plus venir QUE de la communication.
+        # (vision et listen sont gérés dans BrainConfig et VocabularyConfig
+        # plus loin dans le code de run_overnight)
+        rows = 40
+        cols = 40
+        n_agents = 20
+        max_pop = 100
+        food_respawn_lambda = 0.6
+        metabolism = 0.3
+        start_e = 200.0   # +20 pour absorber le cold-start avec moins d'info
+        biome_cfg = BiomeConfig(
+            enabled=True, n_seed_points=8, balanced_seeds=True,
+            affinity_enabled=True,
+            in_affinity_metabolism=0.7, in_affinity_food_value=1.3,
+            out_affinity_metabolism=1.5, out_affinity_food_value=0.7,
+            out_affinity_movement_mult=2.5,
+            reproduction_locked_to_affinity=True,
+            respawn_enabled=True,
+            respawn_check_every=200,
+            respawn_extinct_after_ticks=3000,
+            respawn_threshold=2,
+            respawn_initial_energy=200.0,
+            seed_bank_max_per_affinity=2,
+        )
+        competition_cfg = CompetitionConfig(
+            enabled=True, radius=3,
+            metabolism_per_neighbor=0.03, max_factor=2.0,
+        )
     else:
         rows = 30
         cols = 30
@@ -149,11 +181,20 @@ def build_env(
         food_respawn_lambda = 0.25
         biome_cfg = BiomeConfig(enabled=False)
         competition_cfg = CompetitionConfig(enabled=False)
-    # V8-B2.0 — vocabulary activée seulement en mode language
+    # V8-B2.0 — vocabulary activée seulement en mode language/coordination
     if regime == "language":
         vocab_cfg = VocabularyConfig(
             enabled=True, n_tokens=4, embedding_dim=16,
             listen_radius=5, mutation_std=0.05,
+            vocalize_energy_cost=0.05, social_bonus=0.0,
+            disable_vocalize_after_tick=disable_vocalize_after_tick,
+        )
+    elif regime == "coordination":
+        # V8-C1 : listen_radius=10 (vs vision_radius=2 dans BrainConfig)
+        # Le canal devient le seul vecteur d'info à distance.
+        vocab_cfg = VocabularyConfig(
+            enabled=True, n_tokens=4, embedding_dim=16,
+            listen_radius=10, mutation_std=0.05,
             vocalize_energy_cost=0.05, social_bonus=0.0,
             disable_vocalize_after_tick=disable_vocalize_after_tick,
         )
@@ -275,8 +316,12 @@ def run_overnight(
     # V8-B2.1 — re-stabilisation pour action space étendu (8 actions
     # avec langage). lr plus bas, target sync plus fréquent, epsilon_end
     # légèrement >0 pour exploration résiduelle.
+    # V8-C1 : vision réduite (2 cases) en régime coordination → l'agent
+    # ne voit que ses voisins immédiats. Le langage devient le seul
+    # canal d'info à distance.
+    vision_radius = 2 if regime == "coordination" else 4
     cfg = BrainConfig(
-        enabled=True, device=device, vision_radius=4,
+        enabled=True, device=device, vision_radius=vision_radius,
         hidden_dims=(64, 64), lr=1e-4, batch_size=64,
         buffer_capacity=50_000, min_replay_to_learn=500, train_every=4,
         epsilon_start=0.6, epsilon_end=0.08, epsilon_decay_steps=30_000,
@@ -679,7 +724,10 @@ def main() -> None:
     p.add_argument("--snap-every", type=int, default=5000)
     p.add_argument(
         "--regime", default="training",
-        choices=["training", "darwinian", "niches", "speciation", "language"],
+        choices=[
+            "training", "darwinian", "niches", "speciation",
+            "language", "coordination",
+        ],
     )
     p.add_argument(
         "--vocalize-disable-after", type=int, default=None,
