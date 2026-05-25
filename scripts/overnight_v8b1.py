@@ -45,6 +45,7 @@ from aetherlife.world.competition import CompetitionConfig
 from aetherlife.world.construction import BuildConfig
 from aetherlife.world.planting import PlantingConfig
 from aetherlife.world.reproduction import ReproductionConfig
+from aetherlife.world.language_causality import LanguageCausalityTracker
 from aetherlife.world.seasonal_grid import (
     SeasonalConfig, SeasonalMultiAgentConfig, SeasonalMultiAgentFoodGrid,
 )
@@ -274,6 +275,15 @@ def run_overnight(
     policy = LineageAgent(env=env, cfg=cfg, n_actions=4, seed=seed)
     print(f"OBS_DIM={policy.obs_dim}  device={cfg.device}  brains={len(policy.registry)}")
 
+    # V8-B2.2 — Causality tracker (observer pur, jamais d'influence)
+    causality_tracker: LanguageCausalityTracker | None = None
+    if env.cfg.vocabulary.enabled:
+        causality_tracker = LanguageCausalityTracker(
+            n_tokens=env.cfg.vocabulary.n_tokens,
+            n_actions=policy.n_actions,
+            post_listen_window=3,
+        )
+
     last_ego: dict[int, np.ndarray] = {
         a.agent_id: policy.make_obs(a)
         for a in env._agents  # noqa: SLF001
@@ -301,7 +311,58 @@ def run_overnight(
         e_before = {
             a.agent_id: a.energy for a in env._agents if a.alive  # noqa: SLF001
         }
+        # V8-B2.2 — Push actions au tracker AVANT step (état pré-action)
+        if causality_tracker is not None:
+            causality_tracker.push_actions(t, dict(actions))
         env.step(actions)
+
+        # V8-B2.2 — Push emissions de tokens (lecture du buffer env._tokens_this_tick)
+        if causality_tracker is not None and env.cfg.vocabulary.enabled:
+            tokens_this_tick = getattr(env, "_tokens_this_tick", {})  # noqa: SLF001
+            listen_r = env.cfg.vocabulary.listen_radius
+            for speaker_id, token_id in tokens_this_tick.items():
+                try:
+                    speaker = env.agent_state(speaker_id)
+                except KeyError:
+                    continue
+                if not speaker.alive:
+                    continue
+                # Identifier les listeners dans listen_radius
+                listener_ids: list[int] = []
+                for other in env._agents:  # noqa: SLF001
+                    if not other.alive or other.agent_id == speaker_id:
+                        continue
+                    d = (abs(other.pos[0] - speaker.pos[0])
+                         + abs(other.pos[1] - speaker.pos[1]))
+                    if d <= listen_r:
+                        listener_ids.append(other.agent_id)
+                # Capturer le contexte d'émission (read-only)
+                food_visible = False
+                # Check food dans listen_r autour du speaker
+                for r in range(
+                    max(0, speaker.pos[0] - listen_r),
+                    min(env.cfg.rows, speaker.pos[0] + listen_r + 1),
+                ):
+                    for c in range(
+                        max(0, speaker.pos[1] - listen_r),
+                        min(env.cfg.cols, speaker.pos[1] + listen_r + 1),
+                    ):
+                        if env.food_mask[r, c]:
+                            food_visible = True
+                            break
+                    if food_visible:
+                        break
+                ctx = {
+                    "energy": float(speaker.energy / env.cfg.max_energy),
+                    "food_visible": food_visible,
+                    "n_neighbors": float(min(len(listener_ids), 5) / 5.0),
+                    "biome": int(env._biome_map[speaker.pos[0], speaker.pos[1]])  # noqa: SLF001
+                        if env.cfg.biomes.enabled else 0,
+                }
+                causality_tracker.push_emission(
+                    tick=t, speaker_id=speaker_id, token_id=token_id,
+                    listener_ids=listener_ids, context=ctx,
+                )
 
         # Construct transitions
         next_ego: dict[int, np.ndarray] = {}
@@ -506,6 +567,9 @@ def run_overnight(
             "n_affinities_alive": len(affinity_counts),
         },
         "language_metrics_v8b2": language_metrics,
+        "language_causality_v8b2_2": (
+            causality_tracker.finalize() if causality_tracker is not None else {}
+        ),
         "curves": {
             "alive": alive_curve,
             "lineages": lineages_curve,
@@ -577,6 +641,21 @@ def run_overnight(
         print(f"\n  NOTE : pas de traduction sémantique, juste corrélations.")
         print(f"  'Un token émerge' = usage non aléatoire, concentré par lignée,")
         print(f"  corrélé à un contexte, et modifiant indirectement la survie.")
+
+    # V8-B2.2 — Causalité comportementale
+    if causality_tracker is not None:
+        c = final_report.get("language_causality_v8b2_2", {})
+        print(f"\n--- CAUSALITE COMPORTEMENTALE V8-B2.2 (test du verrou) ---")
+        print(f"  Émissions totales : {c.get('n_emissions_total', 0)}")
+        print(f"  Auditeurs totaux : {c.get('n_listeners_total', 0)}")
+        print(f"  Listener shift KL moyen : {c.get('listener_shift_mean', 0):.4f}")
+        print(f"  Listener shift KL max : {c.get('listener_shift_max', 0):.4f}")
+        print(f"  Context consistency moyenne : {c.get('context_consistency_mean', 0):.2%}")
+        print(f"  Per-token shift : {c.get('listener_shift_per_token', {})}")
+        print(f"  Per-token context : {c.get('context_consistency_per_token', {})}")
+        print(f"  VERDICT : {c.get('verdict', 'unknown')}")
+        print(f"\n  Seuils : shift > 0.10 ET consistance > 0.50 = communication causale renforcée")
+        print(f"           shift < 0.02 ET consistance < 0.30 = hypothèse décorative")
 
     return final_report
 
