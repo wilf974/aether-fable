@@ -48,6 +48,7 @@ from aetherlife.world.competition import (
 from aetherlife.world.planting import PlantingConfig, PlantRecord
 from aetherlife.world.reproduction import LineageEdge, ReproductionConfig
 from aetherlife.world.traits import AgentTraits, TraitDistribution, TraitsConfig
+from aetherlife.world.vocabulary import VocabularyConfig
 
 
 class Season(IntEnum):
@@ -120,6 +121,7 @@ class SeasonalMultiAgentConfig:
     traits: TraitsConfig = TraitsConfig()  # V7 — héritage de biais comportementaux
     biomes: BiomeConfig = BiomeConfig()    # V8-B1.5 — niches écologiques
     competition: CompetitionConfig = CompetitionConfig()  # V8-B1.5 — densité locale
+    vocabulary: VocabularyConfig = VocabularyConfig()  # V8-B2.0 — langage émergent
 
     def __post_init__(self) -> None:
         if self.rows <= 0 or self.cols <= 0:
@@ -574,6 +576,8 @@ class SeasonalMultiAgentFoodGrid:
         # sur sa cellule actuelle avant de bouger.
         self._step_count += 1
         self._builds_last_step = []
+        # V8-B2.0 — reset tokens_this_tick (collect des vocalize)
+        self._tokens_this_tick: dict[int, int] = {}
         if self.cfg.build.enabled:
             self._try_constructions()
         if self.cfg.planting.enabled:
@@ -582,12 +586,26 @@ class SeasonalMultiAgentFoodGrid:
         for agent in self._agents:
             if not agent.alive or agent.agent_id not in actions:
                 continue
-            action = Action(int(actions[agent.agent_id]))
-            dr, dc = _DELTAS[action]
-            r, c = agent.pos
-            new_r = clamp_pos(r, dr, self.cfg.rows)
-            new_c = clamp_pos(c, dc, self.cfg.cols)
-            agent.pos = (new_r, new_c)
+            action_id = int(actions[agent.agent_id])
+            # V8-B2.0 — actions ≥ 4 sont des vocalize (pas mouvement)
+            if action_id >= 4 and self.cfg.vocabulary.enabled:
+                token_id = action_id - 4
+                if 0 <= token_id < self.cfg.vocabulary.n_tokens:
+                    self._tokens_this_tick[agent.agent_id] = token_id
+                    # V8-B2.0 — coût énergétique : parler consomme de l'énergie.
+                    # Force la sélection naturelle vers tokens utiles uniquement.
+                    agent.energy -= self.cfg.vocabulary.vocalize_energy_cost
+                # Vocalize ne fait pas bouger ; l'agent reste sur place
+                # mais subit le metabolism du tile courant
+                dr, dc = 0, 0
+                new_r, new_c = agent.pos
+            else:
+                action = Action(action_id if action_id < 4 else 0)
+                dr, dc = _DELTAS[action]
+                r, c = agent.pos
+                new_r = clamp_pos(r, dr, self.cfg.rows)
+                new_c = clamp_pos(c, dc, self.cfg.cols)
+                agent.pos = (new_r, new_c)
 
             # Metabolism modulé par la température locale ET le biome (V8-B1.5)
             local_temp = float(self._temp_field[new_r, new_c])

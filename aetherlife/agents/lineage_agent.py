@@ -27,7 +27,10 @@ from aetherlife.agents.lineage_brain import BrainConfig
 from aetherlife.agents.lineage_registry import LineageRegistry
 
 
-def egocentric_obs(env, agent, vision_radius: int = 5) -> np.ndarray:
+def egocentric_obs(
+    env, agent, vision_radius: int = 5,
+    *, listener_vocab=None,
+) -> np.ndarray:
     """Construit l'observation égocentrique d'un agent.
 
     Args:
@@ -35,9 +38,13 @@ def egocentric_obs(env, agent, vision_radius: int = 5) -> np.ndarray:
              `_agents`, `phase`, `cfg.max_energy`, `biome_map` V8-B1.5).
         agent: _AgentState (a `pos`, `energy`, `age_norm` calculé ici).
         vision_radius: rayon de vision (fenêtre carrée 2r+1).
+        listener_vocab: V8-B2.0 — Vocabulary de l'AUDITEUR pour décoder
+            les tokens entendus selon SON propre dict. Si None, pas de
+            heard_embeddings (compat V8-B1.x).
 
     Returns:
-        np.ndarray float32 shape (5 * (2r+1)² + 3,)
+        np.ndarray float32 shape (5 * (2r+1)² + 3 + embedding_dim,)
+        embedding_dim = 0 si listener_vocab is None
 
     Canaux :
         0: food
@@ -99,15 +106,40 @@ def egocentric_obs(env, agent, vision_radius: int = 5) -> np.ndarray:
         biome_view.flatten(),
         np.array([energy_norm, age_norm, season_phase], dtype=np.float32),
     ]
+    # V8-B2.0 — heard tokens : moyenne des embeddings des tokens
+    # vocalize par les voisins audibles (Manhattan ≤ listen_radius)
+    # Décodés via le vocabulary de l'AUDITEUR (sinon dialectes impossibles)
+    if listener_vocab is not None:
+        embedding_dim = listener_vocab.cfg.embedding_dim
+        listen_r = listener_vocab.cfg.listen_radius
+        heard_vec = np.zeros(embedding_dim, dtype=np.float32)
+        tokens_dict = getattr(env, "_tokens_this_tick", None)
+        if tokens_dict:
+            count = 0
+            for other in env._agents:  # noqa: SLF001
+                if not other.alive or other.agent_id == agent.agent_id:
+                    continue
+                d = abs(other.pos[0] - ar) + abs(other.pos[1] - ac)
+                if d > listen_r:
+                    continue
+                tok = tokens_dict.get(other.agent_id)
+                if tok is None:
+                    continue
+                heard_vec += listener_vocab.get_embedding(tok)
+                count += 1
+            if count > 0:
+                heard_vec /= count
+        parts.append(heard_vec)
     return np.concatenate(parts)
 
 
-def egocentric_obs_dim(vision_radius: int) -> int:
+def egocentric_obs_dim(vision_radius: int, vocab_dim: int = 0) -> int:
     """Calcule la dim de l'observation égocentrique pour un radius.
 
     V8-B1.5 : 5 canaux × (2r+1)² + 3 scalars.
+    V8-B2.0 : + vocab_dim si vocabulary actif.
     """
-    return 5 * (2 * vision_radius + 1) ** 2 + 3
+    return 5 * (2 * vision_radius + 1) ** 2 + 3 + vocab_dim
 
 
 class LineageAgent:
@@ -127,19 +159,28 @@ class LineageAgent:
     ) -> None:
         self.env = env
         self.cfg = cfg or BrainConfig(enabled=True)
-        self.n_actions = n_actions
+        # V8-B2.0 — extend action space si vocabulary actif
+        vcfg = getattr(env.cfg, "vocabulary", None)
+        self.vocab_cfg = vcfg if (vcfg is not None and vcfg.enabled) else None
+        if self.vocab_cfg is not None:
+            self.n_actions = n_actions + self.vocab_cfg.n_tokens
+            vocab_dim = self.vocab_cfg.embedding_dim
+        else:
+            self.n_actions = n_actions
+            vocab_dim = 0
         self._seed = seed
         self._next_seed = seed + 10_000
-        self.obs_dim = egocentric_obs_dim(self.cfg.vision_radius)
+        self.obs_dim = egocentric_obs_dim(self.cfg.vision_radius, vocab_dim=vocab_dim)
         bcfg = getattr(env.cfg, "biomes", None)
         seed_bank_max = (
             bcfg.seed_bank_max_per_affinity if bcfg is not None else 2
         )
         self.registry = LineageRegistry(
-            cfg=self.cfg, obs_dim=self.obs_dim, n_actions=n_actions,
+            cfg=self.cfg, obs_dim=self.obs_dim, n_actions=self.n_actions,
             seed_bank_max_per_affinity=seed_bank_max,
         )
-        # Init un brain par lignée fondatrice (agents id 0..n_agents-1)
+        self._vocab_rng = np.random.default_rng(seed + 5555)
+        # Init un brain par lignée fondatrice
         for agent in env._agents:  # noqa: SLF001
             if agent.alive:
                 brain = self.registry.get_or_create(
@@ -147,11 +188,19 @@ class LineageAgent:
                     parent_brain=None,
                     seed=self._fresh_seed(),
                 )
-                # V8-B1.7 — attacher l'affinity au brain pour seed bank
                 brain.biome_affinity = agent.biome_affinity
+                # V8-B2.0 — init vocabulary random pour fondateur
+                if self.vocab_cfg is not None and brain.vocabulary is None:
+                    from aetherlife.world.vocabulary import Vocabulary
+                    brain.vocabulary = Vocabulary.random(
+                        self.vocab_cfg, self._vocab_rng,
+                    )
         # V8-B1.7 — tracking dernière vie d'une affinity (pour respawn)
         self._affinity_last_seen: dict[int, int] = {}
         self._last_respawn_for_aff: dict[int, int] = {}
+        # V8-B2.0 — tracking pour reward social : qui a vocalize quand
+        # speakers_recent[agent_id] = tick de dernière vocalize
+        self._speakers_recent: dict[int, int] = {}
 
     def _fresh_seed(self) -> int:
         s = self._next_seed
@@ -184,12 +233,32 @@ class LineageAgent:
         )
         # V8-B1.7 — attacher l'affinity au brain
         brain.biome_affinity = agent.biome_affinity
+        # V8-B2.0 — init vocab si pas hérité d'un parent et vocabulary actif
+        if self.vocab_cfg is not None and brain.vocabulary is None:
+            from aetherlife.world.vocabulary import Vocabulary
+            brain.vocabulary = Vocabulary.random(self.vocab_cfg, self._vocab_rng)
 
     def _get_agent_by_id(self, aid: int):
         for a in self.env._agents:  # noqa: SLF001
             if a.agent_id == aid:
                 return a
         return None
+
+    def make_obs(self, agent) -> np.ndarray:
+        """V8-B2.0 — Helper pour construire l'obs d'un agent avec le bon vocab.
+
+        Utilisé par le bench overnight pour éviter de dupliquer la logique
+        de décodage des tokens entendus.
+        """
+        listener_vocab = None
+        if self.vocab_cfg is not None:
+            brain = self.registry.get(agent.root_ancestor_id)
+            if brain is not None:
+                listener_vocab = brain.vocabulary
+        return egocentric_obs(
+            self.env, agent, self.cfg.vision_radius,
+            listener_vocab=listener_vocab,
+        )
 
     def maybe_respawn_extinct_affinities(self) -> int:
         """V8-B1.7 — Check si une affinity est éteinte depuis trop longtemps,
@@ -257,6 +326,10 @@ class LineageAgent:
         Note : `obs_dict` n'est PAS utilisé directement — on construit
         l'observation égocentrique à partir de l'env. C'est pour rester
         compatible avec l'API SmartHeuristicAgent.
+
+        V8-B2.0 : passe le vocab du brain à egocentric_obs pour décoder
+        les tokens entendus selon SON propre dict. Tracker usage pour
+        métriques d'émergence.
         """
         actions: dict[int, int] = {}
         env = self.env
@@ -274,8 +347,19 @@ class LineageAgent:
             if brain is None:
                 actions[aid] = 0
                 continue
-            obs = egocentric_obs(env, agent, self.cfg.vision_radius)
-            actions[aid] = brain.act(obs, greedy=greedy)
+            # V8-B2.0 — décode heard tokens via vocab du brain de l'auditeur
+            listener_vocab = brain.vocabulary if self.vocab_cfg else None
+            obs = egocentric_obs(
+                env, agent, self.cfg.vision_radius,
+                listener_vocab=listener_vocab,
+            )
+            action_id = brain.act(obs, greedy=greedy)
+            actions[aid] = action_id
+            # V8-B2.0 — tracker l'usage du token si vocalize
+            if self.vocab_cfg is not None and action_id >= 4:
+                token_id = action_id - 4
+                if brain.vocabulary is not None:
+                    brain.vocabulary.record_use(token_id)
         return actions
 
     def observe_dict(

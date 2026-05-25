@@ -219,6 +219,7 @@ class LineageBrain:
         *,
         seed: int = 0,
         biome_affinity: int | None = None,
+        vocabulary=None,  # V8-B2.0 — Vocabulary | None
     ) -> None:
         # Imports lazy pour éviter coût torch en collection-time
         import torch
@@ -231,6 +232,8 @@ class LineageBrain:
         self.cfg = cfg
         # V8-B1.7 — affinity associée à ce brain (pour seed bank lookup)
         self.biome_affinity = biome_affinity
+        # V8-B2.0 — vocabulary émergent par lignée (None si désactivé)
+        self.vocabulary = vocabulary
         self._rng = np.random.default_rng(seed)
         torch.manual_seed(seed)
         wants_cuda = cfg.device == "cuda" and torch.cuda.is_available()
@@ -319,6 +322,7 @@ class LineageBrain:
         mutation_std: float | None = None,
         seed: int = 0,
         biome_affinity: int | None = None,
+        vocab_rng=None,  # V8-B2.0 — numpy Generator pour mutation vocab
     ) -> "LineageBrain":
         """Clone le cerveau parent + mutation gaussienne sur les poids.
 
@@ -333,6 +337,12 @@ class LineageBrain:
             mutation_std = parent.cfg.mutation_std
         # V8-B1.7 : hériter l'affinity du parent si pas explicite
         affinity = biome_affinity if biome_affinity is not None else parent.biome_affinity
+        # V8-B2.0 : hériter le vocabulary du parent avec mutation
+        child_vocab = None
+        if parent.vocabulary is not None:
+            if vocab_rng is None:
+                vocab_rng = np.random.default_rng(seed + 7777)
+            child_vocab = parent.vocabulary.inherit(vocab_rng)
         child = cls(
             root_id=root_id,
             obs_dim=parent.obs_dim,
@@ -340,6 +350,7 @@ class LineageBrain:
             cfg=parent.cfg,
             seed=seed,
             biome_affinity=affinity,
+            vocabulary=child_vocab,
         )
         # Copy + mutation
         torch = child._torch
