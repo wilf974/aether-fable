@@ -69,6 +69,89 @@ def _report_dialects() -> dict:
     }
 
 
+def _report_cooperation_apprenable() -> dict:
+    """Stub V8-C3 où la mécanique coop est apprise : succès >= 50 + clustering positif."""
+    return {
+        "config": {"n_ticks": 15000, "seed": 42, "device": "cpu"},
+        "runtime": {"duration_s": 600.0, "ticks_per_sec": 25.0},
+        "final_state": {
+            "n_alive": 100, "n_births_total": 350, "n_deaths": 250,
+            "top_lineages": [{"root_id": 1, "alive": 60, "pct": 60.0}],
+        },
+        "criterion_3_selection": {
+            "n_lineages_initial": 10, "n_lineages_final": 5,
+        },
+        "cooperative_v8c3": {
+            "enabled": True,
+            "gather_successes_total": 120,
+            "gather_failures_total": 80000,
+            "gather_success_rate": 0.0015,
+            "active_spots_final": 30,
+            "bonus_energy": 80.0,
+            "spawn_lambda": 1.0,
+            "decay_ticks": 100,
+        },
+        "cooperative_metrics_v8c3": {
+            "n_successes_observed": 120,
+            "clustering_pre_success": {
+                "n": 120, "mean_neighbors_r3": 3.5,
+                "median_neighbors_r3": 4,
+                "trend_q4_minus_q1": 1.2,  # > 0 → apprentissage
+            },
+            "vocalize_to_gather_delay": {
+                "n_with_token": 30, "mean_min_delay": 4.0,
+                "trend_q4_minus_q1": 0.5, "coverage": 0.25,
+            },
+            "token_entropy_pre_success": {
+                "n_successes_with_token": 30, "n_tokens_counted": 60,
+                "distribution": {"0": 0.3, "1": 0.25, "2": 0.25, "3": 0.2},
+                "dominant_token": 0, "dominant_share": 0.3, "entropy": 1.35,
+            },
+            "success_chains": {
+                "n_chains": 80, "max_chain_len": 2, "mean_chain_len": 1.5,
+                "n_isolated_successes": 50, "n_cascade_successes": 0,
+            },
+        },
+        "curves": {"alive": [], "loss": [], "lineages": [], "divergence": []},
+    }
+
+
+def _report_cooperation_protocol() -> dict:
+    """Stub V8-C3 avec protocole émergent : token dominant + delay trend < 0."""
+    rep = _report_cooperation_apprenable()
+    rep["cooperative_metrics_v8c3"]["token_entropy_pre_success"] = {
+        "n_successes_with_token": 80, "n_tokens_counted": 200,
+        "distribution": {"0": 0.05, "1": 0.05, "2": 0.78, "3": 0.12},
+        "dominant_token": 2, "dominant_share": 0.78, "entropy": 0.75,
+    }
+    rep["cooperative_metrics_v8c3"]["vocalize_to_gather_delay"] = {
+        "n_with_token": 80, "mean_min_delay": 3.0,
+        "trend_q4_minus_q1": -1.5, "coverage": 0.67,  # < 0 = apprentissage
+    }
+    return rep
+
+
+def _report_cooperation_cascade() -> dict:
+    """Stub V8-C3 avec attracteur cascade : > 20 % succès en chaînes ≥ 3."""
+    rep = _report_cooperation_apprenable()
+    rep["cooperative_metrics_v8c3"]["success_chains"] = {
+        "n_chains": 30, "max_chain_len": 8, "mean_chain_len": 4.0,
+        "n_isolated_successes": 10, "n_cascade_successes": 60,
+        # cascade_ratio = 60 / 120 = 0.5 > 0.2
+    }
+    return rep
+
+
+def _report_cooperation_no_pattern() -> dict:
+    """Stub V8-C3 où la coop existe mais aucun pattern (faibles successes)."""
+    rep = _report_cooperation_apprenable()
+    rep["cooperative_v8c3"]["gather_successes_total"] = 5
+    rep["cooperative_metrics_v8c3"]["n_successes_observed"] = 5
+    rep["cooperative_metrics_v8c3"]["clustering_pre_success"]["n"] = 5
+    rep["cooperative_metrics_v8c3"]["clustering_pre_success"]["trend_q4_minus_q1"] = 0.1
+    return rep
+
+
 def _report_extinction() -> dict:
     """Stub run qui se termine en extinction terminale."""
     return {
@@ -238,6 +321,79 @@ def test_discovery_validates_confidence() -> None:
             slug="x", category=DiscoveryCategory.LANGUAGE,
             confidence=1.5, headline="x",
         )
+
+
+# ─── V8-C3 — Détecteurs coopération ─────────────────────────────────────
+
+
+def test_detect_cooperation_apprenable() -> None:
+    """≥ 50 succès + clustering trend > 0 → mécanique apprise."""
+    det = DiscoveriesDetector(_report_cooperation_apprenable())
+    found = det.detect_cooperation()
+    slugs = [d.slug for d in found]
+    assert "cooperation_apprenable" in slugs
+    d = next(x for x in found if x.slug == "cooperation_apprenable")
+    assert d.category == DiscoveryCategory.COOPERATION
+    assert 0.0 < d.confidence <= 1.0
+    assert d.evidence["gather_successes_total"] == 120
+    assert d.evidence["clustering_trend_q4_minus_q1"] == 1.2
+
+
+def test_detect_cooperation_protocol_emergent() -> None:
+    """Token dominant > 0.5 + delay trend < 0 → protocole émergent."""
+    det = DiscoveriesDetector(_report_cooperation_protocol())
+    found = det.detect_cooperation()
+    slugs = [d.slug for d in found]
+    assert "cooperation_protocol_emergent" in slugs
+    d = next(x for x in found if x.slug == "cooperation_protocol_emergent")
+    assert d.evidence["dominant_token"] == 2
+    assert d.evidence["dominant_share_pre_success"] == 0.78
+    assert d.evidence["delay_trend_q4_minus_q1"] < 0
+
+
+def test_detect_cooperation_cascade_attractor() -> None:
+    """cascade_ratio > 0.2 → attracteur détecté."""
+    det = DiscoveriesDetector(_report_cooperation_cascade())
+    found = det.detect_cooperation()
+    slugs = [d.slug for d in found]
+    assert "cooperation_cascade_attractor" in slugs
+    d = next(x for x in found if x.slug == "cooperation_cascade_attractor")
+    assert d.evidence["cascade_ratio"] == 0.5
+    assert d.evidence["max_chain_len"] == 8
+
+
+def test_detect_cooperation_mechanic_active_no_pattern() -> None:
+    """Succès trop faibles → diagnostic neutre, pas surinterprétation."""
+    det = DiscoveriesDetector(_report_cooperation_no_pattern())
+    found = det.detect_cooperation()
+    slugs = [d.slug for d in found]
+    assert "cooperation_mechanic_active_no_pattern" in slugs
+    # Ne doit JAMAIS déclencher les 3 patterns positifs avec si peu de succès
+    assert "cooperation_apprenable" not in slugs
+    assert "cooperation_protocol_emergent" not in slugs
+    assert "cooperation_cascade_attractor" not in slugs
+
+
+def test_detect_cooperation_skip_if_disabled() -> None:
+    """Si cooperative.enabled=False, aucune découverte coop."""
+    det = DiscoveriesDetector({"cooperative_v8c3": {"enabled": False}})
+    found = det.detect_cooperation()
+    assert found == []
+
+
+def test_detect_cooperation_skip_if_absent() -> None:
+    """Pas de section cooperative_v8c3 → silence absolu."""
+    det = DiscoveriesDetector({})
+    found = det.detect_cooperation()
+    assert found == []
+
+
+def test_detect_all_includes_cooperation_when_present() -> None:
+    """detect_all() doit inclure les découvertes coop dans la sortie."""
+    det = DiscoveriesDetector(_report_cooperation_protocol())
+    found = det.detect_all()
+    slugs = [d.slug for d in found]
+    assert "cooperation_protocol_emergent" in slugs
 
 
 # ─── Historian ──────────────────────────────────────────────────────────

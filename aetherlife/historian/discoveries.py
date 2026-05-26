@@ -35,6 +35,7 @@ class DiscoveryCategory(str, Enum):
     COGNITION = "cognition"
     SELECTION = "selection"
     INSTABILITY = "instability"
+    COOPERATION = "cooperation"
 
 
 @dataclass(frozen=True)
@@ -476,6 +477,185 @@ class DiscoveriesDetector:
 
         return out
 
+    def detect_cooperation(self) -> list[Discovery]:
+        """V8-C3 — Patterns d'émergence coopérative.
+
+        Sources :
+          - report["cooperative_v8c3"] : compteurs bruts (successes, failures)
+          - report["cooperative_metrics_v8c3"] : 4 métriques observationnelles
+            (clustering, delay, token entropy, success chains)
+
+        Patterns détectables :
+          - cooperation_apprenable : ≥ 50 succès + clustering Q4 > Q1
+            → la mécanique est apprise (organisation spatiale corrélée
+              au succès, pas du pur hasard)
+          - cooperation_protocol_emergent : token dominant pre-success
+            > 0.5 ET delay_trend < 0 → compression émergente du protocole
+            (un token devient privilégié + temps de réaction diminue)
+          - cooperation_cascade_attractor : n_cascade_successes /
+            n_successes > 0.2 → boucle de renforcement détectée
+
+        Tous ces patterns sont mécaniques, observables, falsifiables
+        et NON sémantiques.
+        """
+        coop = self._get("cooperative_v8c3") or {}
+        if not coop or not coop.get("enabled"):
+            return []
+        n_success = coop.get("gather_successes_total", 0)
+        n_fail = coop.get("gather_failures_total", 0)
+        if n_success == 0 and n_fail == 0:
+            return []
+
+        out: list[Discovery] = []
+        metrics = self._get("cooperative_metrics_v8c3") or {}
+
+        # ─── Pattern 1 : cooperation_apprenable ─────────────────────────
+        cl = metrics.get("clustering_pre_success", {}) or {}
+        cl_trend = cl.get("trend_q4_minus_q1", 0.0) or 0.0
+        cl_mean = cl.get("mean_neighbors_r3", 0.0) or 0.0
+        if n_success >= 50 and cl_trend > 0.0:
+            # Confiance proportionnelle au signal : plus de successes + trend
+            # positif plus marqué → confiance plus haute
+            conf = min(1.0, 0.4 + (n_success / 500) + (cl_trend / 5.0))
+            out.append(Discovery(
+                slug="cooperation_apprenable",
+                category=DiscoveryCategory.COOPERATION,
+                confidence=conf,
+                headline=(
+                    f"Pattern suggère que la mécanique coopérative est "
+                    f"APPRISE : {n_success} succès gather observés, "
+                    f"clustering Q4-Q1 = {cl_trend:+.2f} (les agents "
+                    f"convergent davantage autour des spots au fil du run). "
+                    f"Densité moyenne au moment du succès : "
+                    f"{cl_mean:.2f} voisins dans r=3."
+                ),
+                evidence={
+                    "gather_successes_total": n_success,
+                    "gather_failures_total": n_fail,
+                    "clustering_trend_q4_minus_q1": cl_trend,
+                    "clustering_mean_neighbors_r3": cl_mean,
+                },
+                validation=[
+                    "Multi-seed pour confirmer la trend de clustering",
+                    "Run plus long : clustering continue-t-il de monter ?",
+                    "Comparer baseline (agents random sur même map)",
+                ],
+            ))
+
+        # ─── Pattern 2 : cooperation_protocol_emergent ──────────────────
+        tk = metrics.get("token_entropy_pre_success", {}) or {}
+        dl = metrics.get("vocalize_to_gather_delay", {}) or {}
+        dominant_share = tk.get("dominant_share", 0.0) or 0.0
+        dominant_token = tk.get("dominant_token")
+        delay_trend = dl.get("trend_q4_minus_q1", 0.0) or 0.0
+        delay_mean = dl.get("mean_min_delay")
+        if (
+            n_success >= 30
+            and dominant_share > 0.5
+            and delay_trend < 0.0
+        ):
+            conf = min(
+                1.0,
+                0.5 + (dominant_share - 0.5) + abs(delay_trend) / 10.0,
+            )
+            out.append(Discovery(
+                slug="cooperation_protocol_emergent",
+                category=DiscoveryCategory.COOPERATION,
+                confidence=conf,
+                headline=(
+                    f"Pattern compatible avec un PROTOCOLE COOPÉRATIF "
+                    f"émergent : le token {dominant_token} concentre "
+                    f"{dominant_share:.0%} des vocalisations dans la "
+                    f"fenêtre 5 ticks AVANT chaque succès, et le délai "
+                    f"vocalize→succès baisse "
+                    f"(Q4-Q1={delay_trend:+.2f}, mean={delay_mean}). "
+                    f"Compatible avec une compression émergente du signal "
+                    f"coopératif."
+                ),
+                evidence={
+                    "dominant_token": dominant_token,
+                    "dominant_share_pre_success": dominant_share,
+                    "delay_trend_q4_minus_q1": delay_trend,
+                    "delay_mean_min": delay_mean,
+                    "token_distribution_pre_success": (
+                        tk.get("distribution", {})
+                    ),
+                },
+                validation=[
+                    "Multi-seed : le même token dominant émerge-t-il ?",
+                    "Ablation sélective : désactiver ce token spécifique → "
+                    "les succès chutent-ils ?",
+                    "Comparer distribution token pre-success vs post-success "
+                    "vs global : la spécialisation est-elle exclusive ?",
+                ],
+            ))
+
+        # ─── Pattern 3 : cooperation_cascade_attractor ──────────────────
+        ch = metrics.get("success_chains", {}) or {}
+        n_cascade = ch.get("n_cascade_successes", 0) or 0
+        max_chain = ch.get("max_chain_len", 0) or 0
+        n_chains = ch.get("n_chains", 0) or 0
+        cascade_ratio = n_cascade / max(n_success, 1)
+        if n_success >= 30 and cascade_ratio > 0.2:
+            conf = min(1.0, 0.4 + cascade_ratio + (max_chain / 50.0))
+            out.append(Discovery(
+                slug="cooperation_cascade_attractor",
+                category=DiscoveryCategory.COOPERATION,
+                confidence=conf,
+                headline=(
+                    f"Pattern suggère un ATTRACTEUR coopératif : "
+                    f"{n_cascade}/{n_success} succès ({cascade_ratio:.0%}) "
+                    f"se produisent dans des cascades de ≥3 succès. "
+                    f"Chaîne la plus longue : {max_chain}. Compatible avec "
+                    f"des boucles de renforcement (un succès → "
+                    f"regroupement → autre succès)."
+                ),
+                evidence={
+                    "n_cascade_successes": n_cascade,
+                    "n_successes_total": n_success,
+                    "cascade_ratio": cascade_ratio,
+                    "max_chain_len": max_chain,
+                    "n_chains": n_chains,
+                    "n_isolated_successes": ch.get("n_isolated_successes", 0),
+                },
+                validation=[
+                    "Inspecter manuellement une cascade : que font les "
+                    "agents juste après un succès ?",
+                    "Comparer cascade_ratio sur le 1er vs 4e quartile du run",
+                    "Si bonus_energy baissé, la cascade disparaît-elle ?",
+                ],
+            ))
+
+        # ─── Cas "diagnostic" : la mécanique existe mais aucun pattern ──
+        # Si on a des succès mais aucun des 3 patterns ne se déclenche,
+        # on émet une découverte "neutre" pour ne pas effacer le signal
+        # mais SANS surinterpréter.
+        if n_success > 0 and not out:
+            out.append(Discovery(
+                slug="cooperation_mechanic_active_no_pattern",
+                category=DiscoveryCategory.COOPERATION,
+                confidence=0.3,
+                headline=(
+                    f"La mécanique coopérative existe ({n_success} succès, "
+                    f"{n_fail} échecs) mais aucun pattern de proto-"
+                    f"coordination n'est encore détectable (clustering trend, "
+                    f"protocole, cascade tous sous seuils). Compatible avec "
+                    f"une mécanique non encore maîtrisée par les agents."
+                ),
+                evidence={
+                    "gather_successes_total": n_success,
+                    "gather_failures_total": n_fail,
+                    "success_rate": n_success / max(n_success + n_fail, 1),
+                },
+                validation=[
+                    "Run plus long pour laisser l'apprentissage prendre",
+                    "Augmenter bonus_energy ou spawn_lambda pour amplifier signal",
+                    "Vérifier que le canal gather_view est bien visible aux agents",
+                ],
+            ))
+
+        return out
+
     def detect_instability(self) -> list[Discovery]:
         """Instabilité numérique DQN."""
         loss_curve = self._get("curves", "loss") or []
@@ -522,6 +702,7 @@ class DiscoveriesDetector:
             self.detect_language, self.detect_causality,
             self.detect_cognition,
             self.detect_selection, self.detect_instability,
+            self.detect_cooperation,
         ):
             try:
                 out.extend(fn())

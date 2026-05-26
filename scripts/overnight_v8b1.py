@@ -42,6 +42,7 @@ from aetherlife.agents.lineage_brain import BrainConfig, LineageBrain
 from aetherlife.world.biomes import BiomeConfig
 from aetherlife.world.cache import CacheConfig
 from aetherlife.world.competition import CompetitionConfig
+from aetherlife.world.cooperative import CooperativeConfig
 from aetherlife.world.construction import BuildConfig
 from aetherlife.world.planting import PlantingConfig
 from aetherlife.world.reproduction import ReproductionConfig
@@ -55,6 +56,9 @@ from aetherlife.world.vocabulary import VocabularyConfig
 def build_env(
     seed: int, *, regime: str = "training",
     disable_vocalize_after_tick: int | None = None,
+    vocalize_energy_cost: float = 0.05,
+    max_pop_override: int | None = None,
+    bonus_energy_override: float | None = None,
 ) -> SeasonalMultiAgentFoodGrid:
     """Config selon regime :
 
@@ -141,7 +145,10 @@ def build_env(
             enabled=True, radius=3,
             metabolism_per_neighbor=0.03, max_factor=2.0,
         )
-    elif regime in ("coordination", "coordination_hidden", "coordination_hard"):
+    elif regime in (
+        "coordination", "coordination_hidden", "coordination_hard",
+        "coordination_collective",
+    ):
         # V8-C1 : ressources invisibles éloignées (vision=2, listen=10)
         # V8-C2 : V8-C1 + food invisible (hidden_food=True dans BiomeConfig)
         # V8-C2.b : V8-C2 + ECO DUR (max_pop=50, winter=0.3, respawn=1)
@@ -150,16 +157,25 @@ def build_env(
         cols = 40
         n_agents = 20
         if regime == "coordination_hard":
-            # V8-C2.b'' : minimal hardening (V8-C2.b et b' trop durs).
-            # Garder tout V8-C2 mais juste réduire max_pop de 100 → 80.
-            # → moins de filet, plus de sensibilité à la coordination,
-            # mais survie initiale possible.
+            # V8-C2.b'' : minimal hardening.
             max_pop = 80
             food_respawn_lambda = 0.55
             metabolism = 0.3
             winter_f = 0.5
             respawn_thr = 2
             start_e = 200.0
+        elif regime == "coordination_collective":
+            # V8-C3a'' (curriculum raffiné après diagnostic mono-density) :
+            # Smoke C3a' 15k → 0/4 patterns positifs car densité (mean=23
+            # voisins/r3) rendait la coop triviale par hasard fréquent.
+            # On baisse max_pop=60 pour FORCER les agents à se chercher
+            # activement → coop SÉLECTIONNÉE, pas opportuniste.
+            max_pop = 60
+            food_respawn_lambda = 0.6
+            metabolism = 0.3
+            winter_f = 0.5
+            respawn_thr = 2
+            start_e = 220.0
         else:
             max_pop = 100
             food_respawn_lambda = 0.6
@@ -180,8 +196,12 @@ def build_env(
             respawn_threshold=respawn_thr,
             respawn_initial_energy=200.0,
             seed_bank_max_per_affinity=2,
-            # V8-C2/V8-C2.b : food invisible à la vue
-            hidden_food=(regime in ("coordination_hidden", "coordination_hard")),
+            # V8-C2/V8-C2.b : food invisible à la vue.
+            # V8-C3a (curriculum init) : food VISIBLE pour apprendre gather
+            # sans cumuler la difficulté hidden_food. C3b durcira plus tard.
+            hidden_food=(regime in (
+                "coordination_hidden", "coordination_hard",
+            )),
         )
         competition_cfg = CompetitionConfig(
             enabled=True, radius=3,
@@ -200,21 +220,49 @@ def build_env(
         vocab_cfg = VocabularyConfig(
             enabled=True, n_tokens=4, embedding_dim=16,
             listen_radius=5, mutation_std=0.05,
-            vocalize_energy_cost=0.05, social_bonus=0.0,
+            vocalize_energy_cost=vocalize_energy_cost, social_bonus=0.0,
             disable_vocalize_after_tick=disable_vocalize_after_tick,
         )
     elif regime in (
         "coordination", "coordination_hidden", "coordination_hard",
+        "coordination_collective",
     ):
-        # V8-C1/C2/C2.b : listen_radius=10 (vs vision_radius=2)
+        # V8-C1/C2/C2.b/C3 : listen_radius=10 (vs vision_radius=2)
         vocab_cfg = VocabularyConfig(
             enabled=True, n_tokens=4, embedding_dim=16,
             listen_radius=10, mutation_std=0.05,
-            vocalize_energy_cost=0.05, social_bonus=0.0,
+            vocalize_energy_cost=vocalize_energy_cost, social_bonus=0.0,
             disable_vocalize_after_tick=disable_vocalize_after_tick,
         )
     else:
         vocab_cfg = VocabularyConfig(enabled=False)
+    # V8-C3 — actions coopératives lourdes (gather_collective)
+    if regime == "coordination_collective":
+        # V8-C3a''-soft : isoler le levier "densité" (diagnostic smoke C3a').
+        # C3a'' avec min_partners=2 → extinction t=1281 (combo trop dur).
+        # Nouvelle approche : SEUL levier modifié vs C3a' = max_pop 100→60
+        # (couplé côté env). On garde min_partners=1 (coop duo) pour
+        # ne pas cumuler les difficultés. Hypothèse : baisser la densité
+        # naturelle suffit à passer "coop par hasard" → "coop sélectionnée".
+        # V8-C3 P1 : overrides CLI pour tester P1 (curriculum optimisé).
+        bonus_e = (
+            bonus_energy_override
+            if bonus_energy_override is not None else 100.0
+        )
+        cooperative_cfg = CooperativeConfig(
+            enabled=True,
+            min_partners_adjacent=1,
+            signal_window_ticks=5,
+            bonus_energy=bonus_e,
+            spawn_lambda=0.5,
+            decay_ticks=100,
+            max_active_spots=40,
+        )
+    else:
+        cooperative_cfg = CooperativeConfig(enabled=False)
+    # V8-C3 P1 : override max_pop si fourni (test curriculum optimisé)
+    if max_pop_override is not None and regime == "coordination_collective":
+        max_pop = max_pop_override
     cfg = SeasonalMultiAgentConfig(
         rows=rows, cols=cols, n_agents=n_agents,
         max_energy=300.0, start_energy=start_e,
@@ -240,6 +288,7 @@ def build_env(
         biomes=biome_cfg,
         competition=competition_cfg,
         vocabulary=vocab_cfg,
+        cooperative=cooperative_cfg,
     )
     env = SeasonalMultiAgentFoodGrid(cfg)
     env.reset(seed=seed)
@@ -320,14 +369,22 @@ def run_overnight(
     snap_every: int = 5000, divergence_every: int = 5000,
     regime: str = "training",
     disable_vocalize_after_tick: int | None = None,
+    vocalize_energy_cost: float = 0.05,
+    max_pop_override: int | None = None,
+    bonus_energy_override: float | None = None,
 ) -> dict:
     env = build_env(
         seed, regime=regime,
         disable_vocalize_after_tick=disable_vocalize_after_tick,
+        vocalize_energy_cost=vocalize_energy_cost,
+        max_pop_override=max_pop_override,
+        bonus_energy_override=bonus_energy_override,
     )
     print(f"REGIME={regime}"
           + (f"  ABLATION@{disable_vocalize_after_tick}"
-             if disable_vocalize_after_tick is not None else ""))
+             if disable_vocalize_after_tick is not None else "")
+          + (f"  VCOST={vocalize_energy_cost}"
+             if vocalize_energy_cost != 0.05 else ""))
     # V8-B2.1 — re-stabilisation pour action space étendu (8 actions
     # avec langage). lr plus bas, target sync plus fréquent, epsilon_end
     # légèrement >0 pour exploration résiduelle.
@@ -640,6 +697,23 @@ def run_overnight(
         "language_causality_v8b2_2": (
             causality_tracker.finalize() if causality_tracker is not None else {}
         ),
+        "cooperative_v8c3": {
+            "enabled": bool(env.cfg.cooperative.enabled),
+            "gather_successes_total": int(env.gather_successes_total),
+            "gather_failures_total": int(env.gather_failures_total),
+            "gather_success_rate": (
+                env.gather_successes_total
+                / max(env.gather_successes_total + env.gather_failures_total, 1)
+            ),
+            "active_spots_final": len(env.gather_spots),
+            "bonus_energy": env.cfg.cooperative.bonus_energy,
+            "spawn_lambda": env.cfg.cooperative.spawn_lambda,
+            "decay_ticks": env.cfg.cooperative.decay_ticks,
+        },
+        "cooperative_metrics_v8c3": (
+            env.coop_metrics.finalize()
+            if env.cfg.cooperative.enabled else {}
+        ),
         "curves": {
             "alive": alive_curve,
             "lineages": lineages_curve,
@@ -727,6 +801,52 @@ def run_overnight(
         print(f"\n  Seuils : shift > 0.10 ET consistance > 0.50 = communication causale renforcée")
         print(f"           shift < 0.02 ET consistance < 0.30 = hypothèse décorative")
 
+    # V8-C3 — Actions coopératives (gather_collective)
+    coop_report = final_report.get("cooperative_v8c3", {})
+    if coop_report.get("enabled"):
+        print(f"\n--- COOPERATION V8-C3 (gather_collective) ---")
+        print(f"  Gather SUCCESSES (≥2 agents adj + spot) : {coop_report.get('gather_successes_total', 0)}")
+        print(f"  Gather FAILURES (tentatives ratées)      : {coop_report.get('gather_failures_total', 0)}")
+        print(f"  Success rate : {coop_report.get('gather_success_rate', 0):.4f}")
+        print(f"  Spots actifs (final) : {coop_report.get('active_spots_final', 0)}")
+        print(f"  Bonus/spot : +{coop_report.get('bonus_energy', 0):.0f} energy")
+        # Critère d'entrée curriculum C3a→C3b
+        n_success = coop_report.get("gather_successes_total", 0)
+        n_lin = len(final_report.get("final_state", {}).get("top_lineages", []))
+        alive_final = final_report.get("final_state", {}).get("n_alive", 0)
+        print(f"\n  --- Critère d'entrée C3a→C3b (ablation valide si tous OK) ---")
+        print(f"  [{'OK' if n_success >= 50 else 'KO'}] gather_successes_total >= 50  (got {n_success})")
+        print(f"  [{'OK' if n_lin >= 3 else 'KO'}] >= 3 lignées vivantes              (got {n_lin})")
+        print(f"  [{'OK' if alive_final > 0 else 'KO'}] pas d'extinction               (alive={alive_final})")
+
+        # V8-C3 — 4 métriques émergence coopération
+        m = final_report.get("cooperative_metrics_v8c3", {})
+        if m:
+            print(f"\n  --- 4 métriques d'émergence (proto-coordination) ---")
+            cl = m.get("clustering_pre_success", {})
+            print(f"  [1] CLUSTERING avant succès :")
+            print(f"      n_neighbors_r3 mean={cl.get('mean_neighbors_r3', 0):.2f} "
+                  f"median={cl.get('median_neighbors_r3', 0)} "
+                  f"trend(Q4-Q1)={cl.get('trend_q4_minus_q1', 0):+.2f}")
+            dl = m.get("vocalize_to_gather_delay", {})
+            print(f"  [2] VOCALIZE→GATHER delay :")
+            print(f"      coverage={dl.get('coverage', 0):.2%} "
+                  f"mean_min_delay={dl.get('mean_min_delay')} "
+                  f"trend(Q4-Q1)={dl.get('trend_q4_minus_q1', 0):+.2f}  "
+                  f"(<0 = apprentissage)")
+            tk = m.get("token_entropy_pre_success", {})
+            print(f"  [3] TOKEN ENTROPY pre-success :")
+            print(f"      dominant_token={tk.get('dominant_token')} "
+                  f"share={tk.get('dominant_share', 0):.2%} "
+                  f"entropy={tk.get('entropy', 0):.3f} "
+                  f"dist={tk.get('distribution', {})}")
+            ch = m.get("success_chains", {})
+            print(f"  [4] SUCCESS CHAINS (cascades) :")
+            print(f"      n_chains={ch.get('n_chains', 0)} "
+                  f"max_len={ch.get('max_chain_len', 0)} "
+                  f"isolated={ch.get('n_isolated_successes', 0)} "
+                  f"cascade_3+={ch.get('n_cascade_successes', 0)}")
+
     return final_report
 
 
@@ -742,7 +862,7 @@ def main() -> None:
         choices=[
             "training", "darwinian", "niches", "speciation",
             "language", "coordination", "coordination_hidden",
-            "coordination_hard",
+            "coordination_hard", "coordination_collective",
         ],
     )
     p.add_argument(
@@ -750,12 +870,30 @@ def main() -> None:
         help="V8-B2.3 — Test d'ablation : si défini, vocalize devient "
              "no-op après ce tick. Pour tester la fonction du langage.",
     )
+    p.add_argument(
+        "--vocalize-cost", type=float, default=0.05,
+        help="V8-C3 M — Coût énergétique de vocalize. Défaut 0.05. "
+             "Mettre à 0.001 pour tester ablation sans biais énergétique.",
+    )
+    p.add_argument(
+        "--max-pop-override", type=int, default=None,
+        help="V8-C3 P1 — Override max_population. Ex: 50 pour curriculum "
+             "P1 (densité encore plus basse).",
+    )
+    p.add_argument(
+        "--bonus-energy-override", type=float, default=None,
+        help="V8-C3 P1 — Override CooperativeConfig.bonus_energy. "
+             "Ex: 150.0 pour P1 (récompense renforcée).",
+    )
     args = p.parse_args()
     run_overnight(
         n_ticks=args.ticks, seed=args.seed, device=args.device,
         out_dir=args.out_dir, snap_every=args.snap_every,
         regime=args.regime,
         disable_vocalize_after_tick=args.vocalize_disable_after,
+        vocalize_energy_cost=args.vocalize_cost,
+        max_pop_override=args.max_pop_override,
+        bonus_energy_override=args.bonus_energy_override,
     )
 
 

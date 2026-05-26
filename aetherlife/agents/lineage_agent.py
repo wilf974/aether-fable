@@ -59,7 +59,7 @@ def egocentric_obs(
     ar, ac = agent.pos
     rows = env.cfg.rows
     cols = env.cfg.cols
-    # 5 canaux V8-B1.5
+    # 5 canaux V8-B1.5 + 1 canal gather V8-C3 (si actif)
     food_view = np.zeros((size, size), dtype=np.float32)
     nest_view = np.zeros((size, size), dtype=np.float32)
     plant_view = np.zeros((size, size), dtype=np.float32)
@@ -76,6 +76,12 @@ def egocentric_obs(
     hidden_food = getattr(
         getattr(env.cfg, "biomes", None), "hidden_food", False,
     )
+    # V8-C3 — gather spots
+    coop_enabled = getattr(
+        getattr(env.cfg, "cooperative", None), "enabled", False,
+    )
+    gather_view = np.zeros((size, size), dtype=np.float32) if coop_enabled else None
+    gather_spots = getattr(env, "_gather_spots", {}) if coop_enabled else {}
     for dr in range(-r, r + 1):
         for dc in range(-r, r + 1):
             gr = ar + dr
@@ -96,6 +102,9 @@ def egocentric_obs(
             if biome_map_local is not None:
                 # 0→0.0, 1→0.33, 2→0.66, 3→1.0
                 biome_view[i, j] = float(biome_map_local[gr, gc]) / 3.0
+            # V8-C3 — gather spots visibles (locaux à la vision)
+            if gather_view is not None and (gr, gc) in gather_spots:
+                gather_view[i, j] = 1.0
     for other in agents:
         if not other.alive or other.agent_id == agent.agent_id:
             continue
@@ -114,8 +123,12 @@ def egocentric_obs(
         plant_view.flatten(),
         agent_view.flatten(),
         biome_view.flatten(),
-        np.array([energy_norm, age_norm, season_phase], dtype=np.float32),
     ]
+    if gather_view is not None:
+        parts.append(gather_view.flatten())
+    parts.append(np.array(
+        [energy_norm, age_norm, season_phase], dtype=np.float32,
+    ))
     # V8-B2.0 — heard tokens : moyenne des embeddings des tokens
     # vocalize par les voisins audibles (Manhattan ≤ listen_radius)
     # Décodés via le vocabulary de l'AUDITEUR (sinon dialectes impossibles)
@@ -143,13 +156,17 @@ def egocentric_obs(
     return np.concatenate(parts)
 
 
-def egocentric_obs_dim(vision_radius: int, vocab_dim: int = 0) -> int:
+def egocentric_obs_dim(
+    vision_radius: int, vocab_dim: int = 0, coop: bool = False,
+) -> int:
     """Calcule la dim de l'observation égocentrique pour un radius.
 
     V8-B1.5 : 5 canaux × (2r+1)² + 3 scalars.
     V8-B2.0 : + vocab_dim si vocabulary actif.
+    V8-C3 : +1 canal gather si coop actif.
     """
-    return 5 * (2 * vision_radius + 1) ** 2 + 3 + vocab_dim
+    n_channels = 6 if coop else 5
+    return n_channels * (2 * vision_radius + 1) ** 2 + 3 + vocab_dim
 
 
 class LineageAgent:
@@ -178,9 +195,23 @@ class LineageAgent:
         else:
             self.n_actions = n_actions
             vocab_dim = 0
+        # V8-C3 — extension action_space pour gather_collective
+        ccfg = getattr(env.cfg, "cooperative", None)
+        self.coop_cfg = ccfg if (ccfg is not None and ccfg.enabled) else None
+        if self.coop_cfg is not None:
+            self.n_actions += 1  # +1 pour l'action gather
+            coop_obs = True
+        else:
+            coop_obs = False
+        # Recalculer obs_dim avec coop
+        from aetherlife.agents.lineage_agent import egocentric_obs_dim as _dim
+        # (auto reference, mais on est dans la classe)
         self._seed = seed
         self._next_seed = seed + 10_000
-        self.obs_dim = egocentric_obs_dim(self.cfg.vision_radius, vocab_dim=vocab_dim)
+        self.obs_dim = egocentric_obs_dim(
+            self.cfg.vision_radius, vocab_dim=vocab_dim,
+            coop=self.coop_cfg is not None,
+        )
         bcfg = getattr(env.cfg, "biomes", None)
         seed_bank_max = (
             bcfg.seed_bank_max_per_affinity if bcfg is not None else 2

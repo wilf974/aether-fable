@@ -48,6 +48,11 @@ from aetherlife.world.competition import (
 from aetherlife.world.planting import PlantingConfig, PlantRecord
 from aetherlife.world.reproduction import LineageEdge, ReproductionConfig
 from aetherlife.world.traits import AgentTraits, TraitDistribution, TraitsConfig
+from aetherlife.world.cooperative import CooperativeConfig, GatherSpot
+from aetherlife.world.cooperative_metrics import (
+    CooperativeMetricsConfig,
+    CooperativeMetricsTracker,
+)
 from aetherlife.world.vocabulary import VocabularyConfig
 
 
@@ -122,6 +127,7 @@ class SeasonalMultiAgentConfig:
     biomes: BiomeConfig = BiomeConfig()    # V8-B1.5 — niches écologiques
     competition: CompetitionConfig = CompetitionConfig()  # V8-B1.5 — densité locale
     vocabulary: VocabularyConfig = VocabularyConfig()  # V8-B2.0 — langage émergent
+    cooperative: CooperativeConfig = CooperativeConfig()  # V8-C3 — coop
 
     def __post_init__(self) -> None:
         if self.rows <= 0 or self.cols <= 0:
@@ -215,6 +221,14 @@ class SeasonalMultiAgentFoodGrid:
         self._biome_map: np.ndarray = np.zeros(
             (self.cfg.rows, self.cfg.cols), dtype=np.int8
         )
+        # V8-C3 — gather_spots (coopération)
+        self._gather_spots: dict[tuple[int, int], GatherSpot] = {}
+        self._gather_successes_total: int = 0
+        self._gather_failures_total: int = 0
+        # V8-C3 — observer télémétrie (clustering, delays, token entropy, chains)
+        self._coop_metrics: CooperativeMetricsTracker = (
+            CooperativeMetricsTracker(CooperativeMetricsConfig())
+        )
         self._agents: list[_AgentState] = []
         self._step_count: int = 0
         self._env_rng: np.random.Generator = np.random.default_rng()
@@ -276,6 +290,24 @@ class SeasonalMultiAgentFoodGrid:
     def biome_map(self) -> np.ndarray:
         """V8-B1.5 — 2D int8, biome_id par tile (0..3)."""
         return self._biome_map.copy()
+
+    @property
+    def gather_spots(self) -> dict[tuple[int, int], GatherSpot]:
+        """V8-C3 — Dict (pos → GatherSpot) des spots actifs."""
+        return dict(self._gather_spots)
+
+    @property
+    def gather_successes_total(self) -> int:
+        return self._gather_successes_total
+
+    @property
+    def gather_failures_total(self) -> int:
+        return self._gather_failures_total
+
+    @property
+    def coop_metrics(self) -> CooperativeMetricsTracker:
+        """V8-C3 — Accès en lecture aux métriques coop pour reporting."""
+        return self._coop_metrics
 
     @property
     def temperature_field(self) -> np.ndarray:
@@ -547,6 +579,13 @@ class SeasonalMultiAgentFoodGrid:
         self._plants_planted_total = 0
         self._plants_matured_total = 0
         self._last_plant_tick = {}
+        # V8-C3 reset
+        self._gather_spots = {}
+        self._gather_successes_total = 0
+        self._gather_failures_total = 0
+        self._coop_metrics = CooperativeMetricsTracker(
+            CooperativeMetricsConfig()
+        )
         # NOTE V8-B1.6 : biome_map est généré au-dessus, avant placement
         # des agents, pour permettre placement par affinity.
         self._initial_food_layout()
@@ -582,15 +621,39 @@ class SeasonalMultiAgentFoodGrid:
             self._try_constructions()
         if self.cfg.planting.enabled:
             self._try_plantings()
+        # V8-C3 — gather_spots : spawn nouveaux + expire vieux
+        if self.cfg.cooperative.enabled:
+            self._spawn_gather_spots()
+            self._decay_gather_spots()
+            # Prune vocalize log toutes les 50 ticks (borne mémoire)
+            if self._step_count % 50 == 0:
+                self._coop_metrics.prune_old_vocalize(self._step_count)
 
         for agent in self._agents:
             if not agent.alive or agent.agent_id not in actions:
                 continue
             action_id = int(actions[agent.agent_id])
-            # V8-B2.0 — actions ≥ 4 sont des vocalize (pas mouvement)
-            if action_id >= 4 and self.cfg.vocabulary.enabled:
+            # V8-C3 — action gather_collective = action_id == (4 + n_tokens)
+            vcfg = self.cfg.vocabulary
+            ccfg = self.cfg.cooperative
+            n_vocab = vcfg.n_tokens if vcfg.enabled else 0
+            gather_action_id = 4 + n_vocab
+            is_gather = (
+                ccfg.enabled and action_id == gather_action_id
+            )
+            is_vocalize = (
+                vcfg.enabled and 4 <= action_id < 4 + n_vocab
+                and not is_gather
+            )
+
+            if is_gather:
+                # V8-C3 — tente d'exploiter un gather_spot
+                self._try_gather_collective(agent)
+                dr, dc = 0, 0
+                new_r, new_c = agent.pos
+            elif is_vocalize:
+                # V8-B2.0 — actions ≥ 4 sont des vocalize (pas mouvement)
                 token_id = action_id - 4
-                vcfg = self.cfg.vocabulary
                 # V8-B2.3 — ablation interventionnelle : vocalize devient
                 # no-op après le seuil (pas d'émission, pas de coût)
                 ablation_active = (
@@ -600,6 +663,14 @@ class SeasonalMultiAgentFoodGrid:
                 if 0 <= token_id < vcfg.n_tokens and not ablation_active:
                     self._tokens_this_tick[agent.agent_id] = token_id
                     agent.energy -= vcfg.vocalize_energy_cost
+                    # V8-C3 — observer télémétrie
+                    if self.cfg.cooperative.enabled:
+                        self._coop_metrics.track_vocalize(
+                            tick=self._step_count,
+                            agent_id=agent.agent_id,
+                            token_id=token_id,
+                            pos=agent.pos,
+                        )
                 # Vocalize ne fait pas bouger ; l'agent reste sur place
                 # mais subit le metabolism du tile courant
                 dr, dc = 0, 0
@@ -790,6 +861,88 @@ class SeasonalMultiAgentFoodGrid:
                 "local_temp": float(self._temp_field[ar, ac]),
             }
         return obs_dict, rewards, terminated, truncated, infos
+
+    # ─── V8-C3 : gather_collective ─────────────────────────────────────
+
+    def _spawn_gather_spots(self) -> None:
+        """V8-C3 — Spawn de gather_spots aléatoires (Poisson)."""
+        ccfg = self.cfg.cooperative
+        if not ccfg.enabled:
+            return
+        if len(self._gather_spots) >= ccfg.max_active_spots:
+            return
+        n_new = int(self._spawn_rng.poisson(ccfg.spawn_lambda))
+        if n_new <= 0:
+            return
+        # Tirer N positions libres (pas de food, pas d'agent, pas de nid)
+        occupied = {a.pos for a in self._agents if a.alive}
+        occupied |= self.nest_positions
+        occupied |= set(self._gather_spots.keys())
+        # Tirage aléatoire
+        for _ in range(min(n_new, ccfg.max_active_spots - len(self._gather_spots))):
+            r = int(self._spawn_rng.integers(0, self.cfg.rows))
+            c = int(self._spawn_rng.integers(0, self.cfg.cols))
+            if (r, c) in occupied:
+                continue
+            if self._food_mask[r, c]:
+                continue
+            spot = GatherSpot(
+                pos=(r, c),
+                spawned_tick=self._step_count,
+                expires_at=self._step_count + ccfg.decay_ticks,
+            )
+            self._gather_spots[(r, c)] = spot
+
+    def _decay_gather_spots(self) -> None:
+        """V8-C3 — Retire les spots expirés."""
+        expired = [
+            pos for pos, spot in self._gather_spots.items()
+            if spot.is_expired(self._step_count)
+        ]
+        for pos in expired:
+            del self._gather_spots[pos]
+
+    def _try_gather_collective(self, agent: _AgentState) -> None:
+        """V8-C3 — Si l'agent est sur un spot avec ≥1 partenaire adjacent,
+        succès collectif : tous reçoivent +bonus_energy, spot consommé."""
+        ccfg = self.cfg.cooperative
+        if not ccfg.enabled:
+            return
+        if agent.pos not in self._gather_spots:
+            self._gather_failures_total += 1
+            return
+        # Compter voisins adjacents (Manhattan ≤ 1, donc 4 directions max)
+        ar, ac = agent.pos
+        partners = []
+        for other in self._agents:
+            if not other.alive or other.agent_id == agent.agent_id:
+                continue
+            d = abs(other.pos[0] - ar) + abs(other.pos[1] - ac)
+            if d <= 1:
+                partners.append(other)
+        if len(partners) < ccfg.min_partners_adjacent:
+            self._gather_failures_total += 1
+            return
+        # Succès collectif : distribuer bonus
+        agent.energy = min(
+            agent.energy + ccfg.bonus_energy, self.cfg.max_energy,
+        )
+        for p in partners:
+            p.energy = min(
+                p.energy + ccfg.bonus_energy, self.cfg.max_energy,
+            )
+        # Spot consommé
+        del self._gather_spots[agent.pos]
+        self._gather_successes_total += 1
+        # V8-C3 — observer télémétrie 4 métriques
+        participants_ids = [agent.agent_id] + [p.agent_id for p in partners]
+        alive_positions = [a.pos for a in self._agents if a.alive]
+        self._coop_metrics.track_success(
+            tick=self._step_count,
+            pos=agent.pos,
+            participants=participants_ids,
+            all_alive_positions=alive_positions,
+        )
 
     def _try_reproductions(self) -> None:
         """V4 — reproduction auto pour env saisonnier (idem MultiAgentFoodGrid).
