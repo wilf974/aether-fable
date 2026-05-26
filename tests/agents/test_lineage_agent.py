@@ -67,6 +67,24 @@ def test_egocentric_obs_self_excluded() -> None:
     assert agent_view[2, 2] == 0.0
 
 
+def test_egocentric_obs_embedding_dim_pad_when_no_vocab() -> None:
+    """V8-C3 P1 régression : si vocab actif (embedding_dim>0) MAIS
+    listener_vocab absent, l'obs doit padder à zéro pour rester de dim
+    constante. Sinon le replay buffer crashe (489 vs 505)."""
+    env = _make_env(n_agents=2)
+    agent = env._agents[0]  # noqa: SLF001
+    # Cas 1 : listener_vocab=None, embedding_dim=0 → pas de heard_vec
+    obs_no_vocab = egocentric_obs(env, agent, vision_radius=5)
+    assert obs_no_vocab.shape == (5 * 121 + 3,)  # 608
+    # Cas 2 : listener_vocab=None, embedding_dim=16 → padding zéro
+    obs_padded = egocentric_obs(
+        env, agent, vision_radius=5, embedding_dim=16,
+    )
+    assert obs_padded.shape == (5 * 121 + 3 + 16,)  # 624
+    # Le bloc de padding doit être zéro
+    assert np.all(obs_padded[-16:] == 0.0)
+
+
 def test_egocentric_obs_values_in_range() -> None:
     env = _make_env(n_agents=3)
     agent = env._agents[0]  # noqa: SLF001

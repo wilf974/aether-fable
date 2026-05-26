@@ -29,7 +29,7 @@ from aetherlife.agents.lineage_registry import LineageRegistry
 
 def egocentric_obs(
     env, agent, vision_radius: int = 5,
-    *, listener_vocab=None,
+    *, listener_vocab=None, embedding_dim: int = 0,
 ) -> np.ndarray:
     """Construit l'observation égocentrique d'un agent.
 
@@ -132,10 +132,13 @@ def egocentric_obs(
     # V8-B2.0 — heard tokens : moyenne des embeddings des tokens
     # vocalize par les voisins audibles (Manhattan ≤ listen_radius)
     # Décodés via le vocabulary de l'AUDITEUR (sinon dialectes impossibles)
+    # V8-C3 P1 fix : si vocab actif (embedding_dim > 0) MAIS listener_vocab
+    # absent (brain pas encore initialisé), padder à zéro pour garantir
+    # l'invariance dimensionnelle de l'obs (sinon buffer crash).
     if listener_vocab is not None:
-        embedding_dim = listener_vocab.cfg.embedding_dim
+        emb_dim = listener_vocab.cfg.embedding_dim
         listen_r = listener_vocab.cfg.listen_radius
-        heard_vec = np.zeros(embedding_dim, dtype=np.float32)
+        heard_vec = np.zeros(emb_dim, dtype=np.float32)
         tokens_dict = getattr(env, "_tokens_this_tick", None)
         if tokens_dict:
             count = 0
@@ -153,6 +156,8 @@ def egocentric_obs(
             if count > 0:
                 heard_vec /= count
         parts.append(heard_vec)
+    elif embedding_dim > 0:
+        parts.append(np.zeros(embedding_dim, dtype=np.float32))
     return np.concatenate(parts)
 
 
@@ -292,13 +297,15 @@ class LineageAgent:
         de décodage des tokens entendus.
         """
         listener_vocab = None
+        embedding_dim = 0
         if self.vocab_cfg is not None:
+            embedding_dim = self.vocab_cfg.embedding_dim
             brain = self.registry.get(agent.root_ancestor_id)
             if brain is not None:
                 listener_vocab = brain.vocabulary
         return egocentric_obs(
             self.env, agent, self.cfg.vision_radius,
-            listener_vocab=listener_vocab,
+            listener_vocab=listener_vocab, embedding_dim=embedding_dim,
         )
 
     def maybe_respawn_extinct_affinities(self) -> int:
