@@ -85,6 +85,37 @@ def test_egocentric_obs_embedding_dim_pad_when_no_vocab() -> None:
     assert np.all(obs_padded[-16:] == 0.0)
 
 
+def test_egocentric_obs_auto_infer_embedding_from_env() -> None:
+    """V8-C3 P1 fix v2 : si env.cfg.vocabulary.enabled mais listener_vocab
+    et embedding_dim sont absents, egocentric_obs doit auto-padder depuis
+    env.cfg.vocabulary.embedding_dim. Couvre les call sites qui n'ont pas
+    accès au LineageAgent (viz, bench)."""
+    from aetherlife.world.vocabulary import VocabularyConfig
+    cfg = SeasonalMultiAgentConfig(
+        rows=10, cols=10, n_agents=2,
+        max_energy=200.0, start_energy=140.0,
+        metabolism=0.4, food_value=15.0, death_penalty=0.0,
+        initial_food_density=0.1, food_respawn_lambda=0.5, max_steps=500,
+        seasonal=SeasonalConfig(season_period=100),
+        reproduction=ReproductionConfig(enabled=False),
+        build=BuildConfig(enabled=False),
+        cache=CacheConfig(enabled=False),
+        planting=PlantingConfig(enabled=False),
+        vocabulary=VocabularyConfig(
+            enabled=True, n_tokens=4, embedding_dim=16,
+            listen_radius=5,
+        ),
+    )
+    env = SeasonalMultiAgentFoodGrid(cfg)
+    env.reset(seed=0)
+    agent = env._agents[0]  # noqa: SLF001
+    # Aucun param vocab passé, mais env.cfg.vocabulary.enabled=True
+    obs = egocentric_obs(env, agent, vision_radius=5)
+    # Dim attendue : 5 channels × 121 + 3 + 16 (auto-padding)
+    assert obs.shape == (5 * 121 + 3 + 16,)
+    assert np.all(obs[-16:] == 0.0)
+
+
 def test_egocentric_obs_values_in_range() -> None:
     env = _make_env(n_agents=3)
     agent = env._agents[0]  # noqa: SLF001

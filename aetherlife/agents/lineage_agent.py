@@ -156,8 +156,18 @@ def egocentric_obs(
             if count > 0:
                 heard_vec /= count
         parts.append(heard_vec)
-    elif embedding_dim > 0:
-        parts.append(np.zeros(embedding_dim, dtype=np.float32))
+    else:
+        # V8-C3 P1 fix : fallback auto — si embedding_dim non fourni mais
+        # env.cfg.vocabulary est enabled, padder quand même pour garantir
+        # invariance dim. Couvre les call sites qui n'ont pas accès au
+        # LineageAgent (viz, bench, etc.).
+        effective_dim = embedding_dim
+        if effective_dim == 0:
+            vcfg = getattr(env.cfg, "vocabulary", None)
+            if vcfg is not None and getattr(vcfg, "enabled", False):
+                effective_dim = vcfg.embedding_dim
+        if effective_dim > 0:
+            parts.append(np.zeros(effective_dim, dtype=np.float32))
     return np.concatenate(parts)
 
 
@@ -396,10 +406,15 @@ class LineageAgent:
                 actions[aid] = 0
                 continue
             # V8-B2.0 — décode heard tokens via vocab du brain de l'auditeur
+            # V8-C3 P1 fix : embedding_dim transmis systématiquement si vocab
+            # actif, pour padder à zéro si brain.vocabulary pas encore init
             listener_vocab = brain.vocabulary if self.vocab_cfg else None
+            embedding_dim = (
+                self.vocab_cfg.embedding_dim if self.vocab_cfg else 0
+            )
             obs = egocentric_obs(
                 env, agent, self.cfg.vision_radius,
-                listener_vocab=listener_vocab,
+                listener_vocab=listener_vocab, embedding_dim=embedding_dim,
             )
             action_id = brain.act(obs, greedy=greedy)
             actions[aid] = action_id
