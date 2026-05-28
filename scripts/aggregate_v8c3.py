@@ -23,7 +23,15 @@ import argparse
 import json
 import os
 import statistics
+import sys
 from typing import Any
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 
 
 def _load_report(run_dir: str) -> dict[str, Any]:
