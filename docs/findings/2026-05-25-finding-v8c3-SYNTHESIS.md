@@ -8,6 +8,26 @@ multi-coût, ablation interventionnelle
 
 ---
 
+> ## ⚠️ RECALIBRAGE phase D (2026-05-29)
+>
+> Les chiffres de Bifurcation 1 ci-dessous ont été établis sur **15
+> seeds**. La réplication phase D sur **50 seeds** les corrige :
+>
+> | Quantité | Cette synthèse (15 seeds) | Phase D (50 seeds) |
+> |---|---|---|
+> | Bifurcation 1 (`very_good`, `cl_trend > +10`) | ~27 % | **~14 %** (12 % avec filtre anti-dégénéré) |
+> | Probabilité conjointe (Bif1 × Bif2) | ~20 % | **~10,5 %** |
+>
+> Le **mécanisme** (double bifurcation, queue droite, transition de phase
+> à vcost ≈ 0.045) est **inchangé et reproductible** ; seul le **taux
+> d'occurrence** était surestimé (échantillon petit-N favorable, fragilité
+> annoncée au §7.1). Lecture corrigée : *« le phénomène est **rare (~14 %)
+> mais réel** »*, pas « fréquent (~27 %) ». Les chiffres inline ci-dessous
+> sont mis à jour ; voir
+> `docs/findings/2026-05-29-finding-v8c3-phase-d-50seeds.md`.
+
+---
+
 ## TL;DR
 
 > AetherLife V8-C3 a identifié un mécanisme d'**émergence linguistique
@@ -15,8 +35,9 @@ multi-coût, ablation interventionnelle
 >
 > 1. **Densité comme facteur confondant** : à haute densité, la
 >    coopération devient triviale et masque toute émergence.
->    À densité réduite (max_pop=60), 27 % des seeds atteignent un
->    régime d'apprentissage spatial fort.
+>    À densité réduite (max_pop=60), ~14 % des seeds (50-seed, phase D ;
+>    15-seed estimait 27 %) atteignent un régime d'apprentissage spatial
+>    fort.
 > 2. **Co-constitution langage/coût énergétique** : le langage acquiert
 >    une fonction informationnelle uniquement sous pression sélective
 >    énergétique. Sans coût, il devient bruit ; avec coût, il devient
@@ -27,8 +48,9 @@ multi-coût, ablation interventionnelle
 >    ont déjà construit un régime spatial fort.
 >
 > Probabilité conjointe d'observer l'émergence linguistique
-> fonctionnelle dans un seed quelconque : **~ 20 %**. Cohérent avec
-> une **dynamique de contingence historique** (Gould 1989).
+> fonctionnelle dans un seed quelconque : **~ 10,5 %** (phase D ; 15-seed
+> estimait ~20 %). Cohérent avec une **dynamique de contingence
+> historique** (Gould 1989).
 
 ---
 
@@ -64,12 +86,12 @@ Cette reformulation a produit une théorie unifiée.
                  │ Bifurcation 1               │
                  │ Atteindre régime "very      │
                  │ good" (cl_trend > +10) ?    │
-                 │ Probabilité : ~27 %          │
+                 │ Probabilité : ~14 %          │
                  │ Modulé par : max_pop=60     │
                  │ (finding density-as-conf.)  │
                  └──────────────┬──────────────┘
                                 │
-                  YES (27 %) ◄──┴──► NO (73 %)
+                  YES (14 %) ◄──┴──► NO (86 %)
                        │              │
                        ▼              ▼
        ┌───────────────────────┐  ┌────────────────┐
@@ -93,15 +115,18 @@ Cette reformulation a produit une théorie unifiée.
   │ Δcl ablation     │  │                  │
   │ < −5 robuste     │  │                  │
   └──────────────────┘  └──────────────────┘
-       ~20 % seeds        ~7 % seeds
+       ~10 % seeds        ~4 % seeds
 ```
 
-### Probabilités estimées (15 seeds testés)
+### Probabilités estimées (recalibré phase D, 50 seeds)
 
 | Étape | Probabilité conditionnelle | Probabilité cumulée |
 |---|---|---|
-| Bifurcation 1 (régime "very good") | ~27 % | 27 % |
-| Bifurcation 2 (effet causal au-dessus coût) | ~75 % | **~ 20 %** |
+| Bifurcation 1 (régime "very good") | ~14 % | 14 % |
+| Bifurcation 2 (effet causal au-dessus coût) | ~75 % | **~ 10,5 %** |
+
+> *15-seed (cette synthèse à l'origine) estimait Bif1 ~27 % → cumulée
+> ~20 %. Corrigé par phase D — voir bandeau en tête.*
 
 ---
 
@@ -112,8 +137,8 @@ Cette reformulation a produit une théorie unifiée.
 **Contribution centrale** : la densité de population (`max_pop`) est un
 **facteur confondant** dans l'étude d'émergence coopérative. À haute
 densité (max_pop=100, mean=23 voisins/r=3), la coop devient triviale.
-À densité réduite (max_pop=60, mean=9), un sous-ensemble de seeds (~27 %)
-développe un apprentissage spatial robuste.
+À densité réduite (max_pop=60, mean=9), un sous-ensemble de seeds (~14 %,
+phase D) développe un apprentissage spatial robuste.
 
 **Découverte secondaire** : distribution bimodale du token dominant
 (mode "convention" token 0 vs mode "coordination" tokens 1/2).
@@ -200,7 +225,7 @@ Gould "Wonderful Life" :
 Dans AetherLife :
 - **Trait** : le canal vocalize (4 tokens, embedding 16)
 - **Contexte requis** : régime "very good" (cl_trend ctrl > +10)
-- **Probabilité d'atteindre le contexte** : ~27 %
+- **Probabilité d'atteindre le contexte** : ~14 % (phase D, 50 seeds)
 - **Fonction conditionnelle** : modulation causale de l'apprentissage
   spatial au-dessus du seuil de coût
 
@@ -213,7 +238,7 @@ Les 3 findings combinés font émerger un mécanisme classique des
 |---|---|
 | Multi-stabilité | 2 bassins d'attraction (convention vs coordination) |
 | Bifurcation transcritique | Effet causal à vcost ≈ 0.045 |
-| Contingence historique | Régime "very good" rare (27 %) |
+| Contingence historique | Régime "very good" rare (~14 %, phase D) |
 | Confondants paramétriques | Densité initiale, coût énergétique |
 | Seuil critique | vcost ≈ 0.045 (universel inter-seed sur very good) |
 
@@ -275,7 +300,8 @@ de compression du langage) renforcerait la conclusion.
 >   ctrl > +10)
 >
 > La probabilité conjointe d'observer l'émergence dans un seed
-> quelconque est ~20 %. Cela explique pourquoi toutes les phases
+> quelconque est ~10,5 % (phase D ; ~20 % en estimation 15-seed).
+> Cela explique pourquoi toutes les phases
 > antérieures (avec moins de précision dans le filtrage) avaient conclu
 > à des nulls ou à des effets fragiles.
 >
@@ -365,7 +391,7 @@ La phase B a soumis la SYNTHESIS à 3 perturbations causales successives :
 
 | Test | Config | Résultat |
 |---|---|---|
-| **P1** (prédiction §6) | `max_pop=50, bonus=150` | **RÉFUTÉE** — 6.7 % (vs ~27 % baseline) |
+| **P1** (prédiction §6) | `max_pop=50, bonus=150` | **RÉFUTÉE** — 6.7 % (vs baseline 15-seed 27 % ; baseline 50-seed phase D = 14 %) |
 | **B1** (densité seule) | `max_pop=70, bonus=100` | 20.0 % — cloche confirmée, optimum proche 60 |
 | **B2** (bonus seul) | `max_pop=60, bonus=120` | **26.7 %** — reproduit baseline ±0.3 pp |
 

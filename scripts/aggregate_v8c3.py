@@ -90,13 +90,23 @@ def _extract_metrics(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# Seuil canonique du régime "very good" (SYNTHESIS, Bifurcation 1).
+VERY_GOOD_CL_TREND = 10.0
+# Filtre anti-dégénéré (phase D) : un cl_trend élevé calculé sur un
+# micro-échantillon de succès, ou sur une population éteinte, est un
+# faux positif (ex. seed22 phase D : cl_trend=+25.5 mais éteint, 11 succès).
+VERY_GOOD_MIN_SUCC = 30
+
+
 def _verdict_per_seed(m: dict[str, Any]) -> dict[str, bool]:
-    """Évalue les 3 seuils par seed."""
+    """Évalue les seuils par seed."""
     n_succ = m.get("gather_successes", 0) or 0
     cl_trend = m.get("clustering_trend") or 0.0
     delay_trend = m.get("delay_trend") or 0.0
     dom_share = m.get("token_dominant_share") or 0.0
     cascade_ratio = m.get("cascade_ratio") or 0.0
+    n_alive = m.get("n_alive_final") or 0
+    very_good_raw = cl_trend > VERY_GOOD_CL_TREND
     return {
         "apprenable": (n_succ >= 50) and (cl_trend > 0.0),
         "protocol_emergent": (
@@ -105,7 +115,13 @@ def _verdict_per_seed(m: dict[str, Any]) -> dict[str, bool]:
         "cascade_attractor": (
             n_succ >= 30 and cascade_ratio > 0.2
         ),
-        "no_extinction": (m.get("n_alive_final") or 0) > 0,
+        "no_extinction": n_alive > 0,
+        # Bifurcation 1 — cl_trend brut (définition historique SYNTHESIS)
+        "very_good_raw": very_good_raw,
+        # Bifurcation 1 durcie (phase D) — exclut les faux positifs
+        "very_good": (
+            very_good_raw and n_succ >= VERY_GOOD_MIN_SUCC and n_alive > 0
+        ),
     }
 
 
@@ -169,6 +185,12 @@ def aggregate(run_dirs: list[str]) -> dict[str, Any]:
         s["verdict_per_seed"]["cascade_attractor"] for s in valid
     )
     n_no_ext = sum(s["verdict_per_seed"]["no_extinction"] for s in valid)
+    n_very_good_raw = sum(
+        s["verdict_per_seed"]["very_good_raw"] for s in valid
+    )
+    n_very_good = sum(s["verdict_per_seed"]["very_good"] for s in valid)
+    very_good_rate = n_very_good / n_valid
+    very_good_rate_raw = n_very_good_raw / n_valid
     n_clustering_strong = sum(
         1 for s in valid
         if (s.get("clustering_trend") or 0.0) > 1.0
@@ -202,15 +224,41 @@ def aggregate(run_dirs: list[str]) -> dict[str, Any]:
     else:
         verdict = "C3a_insufficient_signal"
 
+    # Bande de robustesse (critère pré-enregistré phase B / phase D),
+    # basée sur le taux very_good DURCI.
+    pct = 100.0 * very_good_rate
+    if pct >= 22.0:
+        bif1_band = "robuste_publiable [22%,32%]"
+    elif pct >= 15.0:
+        bif1_band = "valide_mais_surestimee [15%,22%]"
+    elif pct >= 10.0:
+        bif1_band = "mecanisme_reel_taux_surestime [10%,15%]"
+    else:
+        bif1_band = "reexaminer [<10%]"
+    # Probabilité conjointe Bif1 × Bif2 (Bif2 ≈ 75 %, SYNTHESIS)
+    joint_prob = very_good_rate * 0.75
+
     return {
         "n_valid_seeds": n_valid,
         "n_total_seeds": len(seeds_data),
         "aggregate_metrics": agg,
+        "bifurcation1": {
+            "n_very_good": n_very_good,
+            "n_very_good_raw": n_very_good_raw,
+            "very_good_rate": very_good_rate,
+            "very_good_rate_raw": very_good_rate_raw,
+            "cl_trend_threshold": VERY_GOOD_CL_TREND,
+            "min_succ_filter": VERY_GOOD_MIN_SUCC,
+            "band": bif1_band,
+            "joint_prob_bif1_x_bif2": joint_prob,
+        },
         "patterns_count_across_seeds": {
             "cooperation_apprenable": n_apprenable,
             "cooperation_protocol_emergent": n_protocol,
             "cooperation_cascade_attractor": n_cascade,
             "no_extinction": n_no_ext,
+            "very_good_raw_cl_trend_gt_10": n_very_good_raw,
+            "very_good_hardened": n_very_good,
             "clustering_strong_with_50_succ": n_clustering_strong,
         },
         "verdict_global": verdict,
@@ -357,6 +405,25 @@ def _print_report(out: dict[str, Any]) -> None:
         print(
             f"  [bonus] cascade_ratio : {bl:.1%} (C3a') → {cas_mean:.1%} "
             f"(Δ={delta:+.3f}) — {verdict}"
+        )
+
+    b = out.get("bifurcation1")
+    if b:
+        print("\n--- Bifurcation 1 (régime 'very good', cl_trend > +10) ---")
+        n = out["n_valid_seeds"]
+        print(
+            f"  very_good DURCI    : {b['n_very_good']}/{n} = "
+            f"{100*b['very_good_rate']:.1f}%  "
+            f"(filtre: succ>={b['min_succ_filter']} ∧ alive>0)"
+        )
+        print(
+            f"  very_good brut     : {b['n_very_good_raw']}/{n} = "
+            f"{100*b['very_good_rate_raw']:.1f}%  (cl_trend > +10 seul)"
+        )
+        print(f"  bande              : {b['band']}")
+        print(
+            f"  proba conjointe    : ~{100*b['joint_prob_bif1_x_bif2']:.1f}% "
+            f"(Bif1 durci × Bif2≈75%)"
         )
 
     print(f"\nVerdict global : {out['verdict_global']}")
