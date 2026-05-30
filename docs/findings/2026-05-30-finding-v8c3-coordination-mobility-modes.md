@@ -2,11 +2,12 @@
 
 **Date** : 2026-05-30
 **Phase** : V8-C3 — première exploitation scientifique du V8 Replay Viewer
-**Status** : **Découverte préliminaire** (n=4 seeds) — un axe de variation spatial
-inédit, invisible aux métriques existantes. Classifieur validé ; driver candidat
-non confirmé.
-**Données** : 4 very_good seeds (25, 14, 24, 40), régime `coordination_collective`,
-baseline, 16k ticks, re-simulés via `record_events_v8.py` (events.jsonl par tick).
+**Status** : **Confirmé n=20** — un axe de variation spatial inédit, invisible aux
+métriques existantes. 3 modes à distribution stable (village 55 % / dérive 30 % /
+migration 15 %). Classifieur validé. **Driver « creux profond » RÉFUTÉ.**
+**Données** : 20 seeds coordonnés (`coordination_collective`, baseline, 16k ticks),
+re-simulés via `record_events_v8.py` (events.jsonl par tick). Mise à jour 2026-05-31
+(le préliminaire n=4 reste en §5 pour traçabilité).
 **Outil** : `scripts/analyze_occupation_mobility.py`.
 **Tag associé** : *aucun*.
 
@@ -84,41 +85,59 @@ corrélation d'occupation capte le **mode** (robuste), le com capte la **moyenne
   **coins différents** (seed25 bas-droite, seed24 haut-gauche). Donc **effet
   fondateur stochastique**, pas déterminisme spatial de l'environnement.
 
-## 5. Driver candidat (non confirmé, n=4)
+## 4bis. Taux des modes (n=20)
 
-**Sévérité du creux démographique** : seed14 (migration) a frôlé l'extinction
-(**4 survivants** à t≈650), bien plus bas que les villages (13-14) et la dérive
-(24). Hypothèse mécaniste :
+| Mode | n/20 | % | seeds |
+|---|---|---|---|
+| VILLAGE | 11 | **55 %** | 24,25,31,42,6,16,20,23,29,32,37 |
+| dérive partielle | 6 | **30 %** | 40,1,3,13,27,47 |
+| MIGRATION | 3 | **15 %** | 14 (0.39), 19 (0.40), 46 (**0.15**) |
 
-> Un creux profond ne laisse que quelques **fondateurs**, possiblement déplacés
-> hors de la zone d'origine. La repopulation reconstruit le village là où sont les
-> fondateurs → relocalisation. Un creux modéré laisse assez de survivants dispersés
-> autour de la zone d'origine pour la reconstruire **sur place** → village.
+La migration est un **mode minoritaire réel et reproductible (~15 %)**, pas une
+anomalie. Distribution continue de `corr_occupation` (0.15 → 0.97).
 
-⚠️ **Non monotone sur 4 seeds** : seed40 a le creux le plus *faible* (24) mais
-n'est pas le village le plus net (dérive 0.611). Le driver est **suggestif, pas
-établi**. Confondants possibles : timing du creux, saison, position exacte des
-survivants.
+## 5. Driver « creux profond → migration » — RÉFUTÉ (n=20)
+
+L'hypothèse préliminaire (n=4) : un creux démographique profond relocalise les
+fondateurs → migration. Elle reposait entièrement sur seed14 (4 survivants).
+
+**Réfutée à n=20** :
+```
+creux moyen : MIGRATION = 16.7   VILLAGE = 11.8   (sens INVERSE de l'hypothèse)
+```
+Les migrateurs ont un creux **moins** profond en moyenne. seed19 et seed46 migrent
+avec des creux peu profonds (24, 22) ; seed14 (creux=4) était une **coïncidence**.
+**La profondeur du creux ne prédit pas le mode de mobilité.**
+
+> Premier driver candidat éliminé proprement. Le mode de mobilité reste un
+> phénomène robuste **sans cause identifiée** — pistes restantes (sur données
+> existantes) : trajectoire multi-fenêtre de la zone dense, coin de settling,
+> affinité de la lignée dominante, interaction food/biome, phase saisonnière.
+
+### Préliminaire n=4 (archivé pour traçabilité)
+La table n=4 (25,14,24,40) suggérait creux MIGRATION=4 vs VILLAGE=13.5 — artefact
+de l'outlier seed14, non répliqué.
 
 ## 6. Limitations
 
-- **n=4** — classification robuste, driver spéculatif. Il faut 10-20 very_good
-  seeds pour (a) mesurer le **taux** de chaque mode et (b) tester la corrélation
-  creux↔mobilité.
+- **n=20** — taux et réfutation du driver solides ; cause du mode toujours
+  **inconnue**.
 - Re-runs CUDA non bit-exacts : instances représentatives du régime, pas réplique
   des runs phase D.
 - Métrique 8×8 / tiers : un balayage de résolution (bins, fenêtres) renforcerait
-  la robustesse.
+  la robustesse. Seuils village/migration (0.8 / 0.5) à valider sur la distribution
+  continue observée.
 
 ## 7. Suite
 
-1. **Élargir l'échantillon** : record 10-20 very_good seeds, mesurer le taux
-   village/dérive/migration et tester le driver « creux profond → migration ».
-2. **Officialiser la métrique** : intégrer `corr_occupation` (+ profondeur de
-   creux) dans le pipeline d'agrégation comme dimension de caractérisation.
-3. Si la migration se confirme rare-mais-réelle et liée au creux : concevoir un
-   régime à **ressource non-stationnaire** pour *induire* la migration et
-   l'étudier comme comportement collectif à part entière.
+1. **Chercher le vrai driver** (gratuit, données existantes) : corréler le mode
+   avec la trajectoire multi-fenêtre de la zone dense, le coin de settling,
+   l'affinité de la lignée dominante, la food/biome locale, la phase saisonnière.
+2. **Officialiser la métrique** : intégrer `corr_occupation` dans le pipeline
+   d'agrégation comme dimension de caractérisation à part entière.
+3. À terme : régime à **ressource non-stationnaire** pour *induire* la migration
+   et l'étudier comme comportement collectif — mais d'abord comprendre ce qui la
+   déclenche spontanément.
 
 ## 8. Reproduire
 
