@@ -251,7 +251,7 @@ La théorie unifiée fait **5 prédictions falsifiables** :
 | # | Prédiction | Test |
 |---|---|---|
 | P1 | Si on augmente la probabilité d'atteindre "very good" (curriculum amélioré), la proportion de seeds avec transition causale augmente | Tester avec max_pop=50 et bonus=150 |
-| P2 | Au-dessus de vcost=0.1, l'effet devrait s'inverser (étouffement) | Lancer vcost=0.1 et 0.2 |
+| P2 | ~~Au-dessus de vcost=0.1, l'effet devrait s'inverser (étouffement)~~ **RÉFUTÉE (2026-05-29)** : à 0.1 le système reste baseline (very_good 13,3 %), à 0.2 il **remonte** (33,3 %, cl_trend +5,47, vocalize robuste). Le coût élevé **trie** au lieu d'étouffer (handicap de Zahavi). Seuil d'étouffement éventuel > 0.2. | ✅ Fait — 15 seeds × {0.1, 0.2}. Voir `2026-05-29-finding-v8c3-p2-etouffement-refuted.md` |
 | P3 | À vcost < 0.04, aucun seed ne devrait montrer Δcl < −3 même chez very good | Confirmer via runs |
 | P4 | Le seuil critique vcost ≈ 0.045 devrait être **invariant** à d'autres paramètres (max_pop, bonus_energy) | Tester à max_pop=80, bonus=70 |
 | P5 | La distribution bimodale convention/coordination devrait disparaître si on augmente diversité de lignées | Tester avec 3+ affinities forcées |
