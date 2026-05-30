@@ -93,3 +93,19 @@ def test_focus_lineage_dims_other_lineages():
     px = surf.get_at((35, 35))[:3]
     base = lineage_color(9)
     assert tuple(px) == (base[0] // 3, base[1] // 3, base[2] // 3)
+
+
+import subprocess
+import sys
+
+
+def test_render_v8_cli_end_to_end(tmp_path):
+    events, meta = _write_run(tmp_path)
+    out = str(tmp_path / "cli_clip.mp4")
+    r = subprocess.run(
+        [sys.executable, "scripts/render_v8.py", "--events", events,
+         "--out", out, "--fps", "5", "--cell-px", "8"],
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    assert os.path.getsize(out) > 0
