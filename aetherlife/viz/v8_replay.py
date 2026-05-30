@@ -32,3 +32,29 @@ def lineage_color(root_id: int) -> tuple[int, int, int]:
     hue = (int(root_id) * 0.61803398875) % 1.0
     r, g, b = colorsys.hsv_to_rgb(hue, 0.55, 0.92)
     return (int(r * 255), int(g * 255), int(b * 255))
+
+
+def load_meta(path: str) -> dict[str, Any]:
+    """Charge meta.json."""
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def iter_events(path: str) -> Iterator[dict[str, Any]]:
+    """Itère les événements d'un events.jsonl (1 objet JSON par ligne non vide)."""
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                yield json.loads(line)
+
+
+_REQUIRED_EVENT_KEYS = {"t", "agents"}
+
+
+def validate_event(event: dict[str, Any]) -> bool:
+    """Vérifie la présence des clés minimales du contrat."""
+    missing = _REQUIRED_EVENT_KEYS - set(event.keys())
+    if missing:
+        raise ValueError(f"event missing keys: {sorted(missing)}")
+    return True
