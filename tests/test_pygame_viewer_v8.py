@@ -81,3 +81,15 @@ def test_render_mp4_produces_nonempty_file(tmp_path):
     res = render_events(events, meta, out, fmt="mp4", fps=5, cell_px=8)
     assert res == out
     assert os.path.getsize(out) > 0
+
+
+def test_focus_lineage_dims_other_lineages():
+    ev = {"t": 1, "agents": [
+        {"id": 0, "lin": 5, "r": 1, "c": 1},
+        {"id": 1, "lin": 9, "r": 3, "c": 3},
+    ]}
+    surf = _draw_frame(ev, META, cell_px=CELL, focus_lineage=5)
+    # agent lin=9 (hors focus) en (r=3,c=3) : centre x=3*10+5=35, y=3*10+5=35
+    px = surf.get_at((35, 35))[:3]
+    base = lineage_color(9)
+    assert tuple(px) == (base[0] // 3, base[1] // 3, base[2] // 3)

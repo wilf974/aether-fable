@@ -20,6 +20,18 @@ SPOT_HOT = (255, 230, 120)
 HUD_H = 28
 HUD_BG = (10, 10, 12)
 HUD_FG = (210, 210, 215)
+LISTEN_RING = (80, 200, 200)
+
+_FONT = None
+
+
+def _get_font() -> "pygame.font.Font":
+    global _FONT
+    if _FONT is None:
+        if not pygame.font.get_init():
+            pygame.font.init()
+        _FONT = pygame.font.SysFont("monospace", 14)
+    return _FONT
 
 
 def _draw_frame(
@@ -61,9 +73,18 @@ def _draw_frame(
         cy = rc[0] * cell_px + radius
         pygame.draw.circle(surf, token_color(tok), (cx, cy), radius)
 
+    # Anneau listen_radius (toggle : actif uniquement si focus_lineage est fourni)
+    listen_radius = int(meta.get("listen_radius", 0))
+    if focus_lineage is not None and listen_radius > 0:
+        for a in event["agents"]:
+            if a["lin"] == focus_lineage:
+                cx = a["c"] * cell_px + cell_px // 2
+                cy = a["r"] * cell_px + cell_px // 2
+                pygame.draw.circle(surf, LISTEN_RING, (cx, cy), listen_radius * cell_px, width=1)
+
     # HUD
     pygame.draw.rect(surf, HUD_BG, pygame.Rect(0, rows * cell_px, width, HUD_H))
-    font = pygame.font.SysFont("monospace", 14)
+    font = _get_font()
     txt = (
         f"t={event.get('t', 0)}  alive={event.get('n_alive', '?')}  "
         f"lin={event.get('n_lin', '?')}  season={event.get('season', '?')}"
@@ -115,6 +136,9 @@ def render_events(
 
     if fmt == "png":
         return png_paths
+
+    if not video_frames:
+        raise ValueError(f"Aucun événement dans la plage [{from_tick}, {to_tick}]")
 
     parent = os.path.dirname(os.path.abspath(out_path))
     os.makedirs(parent, exist_ok=True)
