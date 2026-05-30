@@ -56,14 +56,26 @@ record_events_v8.py  ──►  events.jsonl + meta.json  ──►  pygame_view
 `events.jsonl` (1 objet JSON / tick enregistré) :
 ```json
 {"t":1240,"season":2,"n_alive":61,"n_births":186,"n_lin":7,
- "agents":[{"id":4,"lin":12,"r":8,"c":15,"e":63.2}],
+ "agents":[{"id":4,"lin":12,"r":8,"c":15,"e":63.2,"er":0.42,"age":812,"aff":2}],
  "vocal":{"4":2},
  "spots":[{"r":3,"c":9,"n":2}]}
 ```
 - `agents[].lin` = `root_ancestor_id` (id de lignée).
+- `agents[].er` = **energy ratio** = `energy / cfg.max_energy` (plus utile
+  visuellement que l'énergie brute — calculé par le recorder).
+- `agents[].age` = **dérivé** : `t − agent.birth_tick` (pas de champ `age` dans
+  `_AgentState` ; le recorder le calcule, aucune modif du core).
+- `agents[].aff` = `biome_affinity` — **un code entier** (`int | null`,
+  `null` = pas de spéciation), PAS une string. Permet de colorier par niche
+  plutôt que par lignée brute dans un futur overlay.
+- `agents[].e` = énergie brute conservée (debug).
+- `is_speaker_this_tick` : **non dupliqué par agent** — déductible du map
+  `vocal` (membership = speaker, valeur = token). L'info est déjà dans le contrat.
 - `vocal` = `{agent_id: token_id}` lu depuis `env._tokens_this_tick`.
 - `spots[].n` = nb d'agents adjacents (≥2 ⇒ gather_collective potentiel).
-- Champs courts (`r,c,e,lin`) pour limiter la taille (16k ticks × ~60 agents).
+- Champs courts pour limiter la taille (16k ticks × ~60 agents, `record_every=10`
+  → ~1600 lignes × ~60 agents). Ces champs (er/age/aff) sont enregistrés
+  **maintenant** même si pas affichés tout de suite → futurs overlays sans re-record.
 
 ### 3.2 Recorder — `scripts/record_events_v8.py`
 
@@ -74,6 +86,8 @@ record_events_v8.py  ──►  events.jsonl + meta.json  ──►  pygame_view
   event tous les `--record-every N` ticks → écrit la ligne jsonl.
 - Flags : `--seed --ticks --regime --vocalize-cost --max-pop-override
   --bonus-energy-override --record-every --out-dir --device`.
+  **`--record-every` défaut = 10** (16k ticks → ~1600 frames ≈ 53 s à 30 fps,
+  idéal premier clip public ; `--record-every 1` pour debug image-par-image).
 - Sortie : `<out-dir>/events.jsonl` + `<out-dir>/meta.json`.
 - Seul module à dépendances lourdes (torch, env, cuda).
 - ⚠️ `PYTHONIOENCODING=utf-8` requis (piège cp1252 hérité).
@@ -143,10 +157,17 @@ Le gros du test est **sans GPU** (renderer pur). Le recorder n'a qu'un smoke.
 
 ## 8. Critère de réussite
 
-> Prendre un seed important (ex. seed25 very_good) et produire
-> `clips/seed25.mp4` **compréhensible** (on voit les lignées, les tokens
-> vocalisés, le gather collectif) **sans relancer le training** — en
-> 2 commandes : `record_events_v8.py` puis `render_v8.py`.
+> Prendre un seed important et produire un `.mp4` **compréhensible** (on voit
+> les lignées, les tokens vocalisés, le gather collectif) **sans relancer le
+> training** — en 2 commandes : `record_events_v8.py` puis `render_v8.py`.
+
+**Seeds de démonstration (ordre validé)** :
+1. **seed25** en premier — very_good, `cl_trend +27.5`, régime visuellement
+   fort : montre clairement la **coordination**.
+2. **seed45** en second (clip comparatif) — 240 succès, token concentré mais
+   `cl_trend ≈ 0` : montre « **convention apparente sans coordination** ». La
+   comparaison des deux clips illustre directement le finding « un seul
+   attracteur sain = coordination ».
 
 ## 9. Livrables
 
