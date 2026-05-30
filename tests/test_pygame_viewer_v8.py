@@ -35,3 +35,49 @@ def test_vocalize_halo_uses_token_color():
     radius = max(2, CELL // 4)
     px = surf.get_at((35, 2 * CELL + radius))[:3]
     assert tuple(px) == token_color(1)
+
+
+import json
+from aetherlife.viz.pygame_viewer_v8 import render_events
+
+
+def _write_run(tmp_path):
+    meta = {"rows": 6, "cols": 6, "n_tokens": 4}
+    (tmp_path / "meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    events = [
+        {"t": 10, "n_alive": 1, "n_lin": 1, "season": 0,
+         "agents": [{"id": 0, "lin": 3, "r": 1, "c": 1}], "vocal": {}, "spots": []},
+        {"t": 20, "n_alive": 1, "n_lin": 1, "season": 0,
+         "agents": [{"id": 0, "lin": 3, "r": 2, "c": 2}], "vocal": {"0": 2},
+         "spots": [{"r": 4, "c": 4, "n": 2}]},
+        {"t": 30, "n_alive": 1, "n_lin": 1, "season": 1,
+         "agents": [{"id": 0, "lin": 3, "r": 3, "c": 3}], "vocal": {}, "spots": []},
+    ]
+    (tmp_path / "events.jsonl").write_text(
+        "\n".join(json.dumps(e) for e in events) + "\n", encoding="utf-8"
+    )
+    return str(tmp_path / "events.jsonl"), str(tmp_path / "meta.json")
+
+
+def test_render_png_writes_one_frame_per_event(tmp_path):
+    events, meta = _write_run(tmp_path)
+    out_dir = str(tmp_path / "frames")
+    paths = render_events(events, meta, out_dir, fmt="png", cell_px=8)
+    assert len(paths) == 3
+    assert all(os.path.getsize(p) > 0 for p in paths)
+
+
+def test_render_png_respects_tick_range(tmp_path):
+    events, meta = _write_run(tmp_path)
+    out_dir = str(tmp_path / "frames2")
+    paths = render_events(events, meta, out_dir, fmt="png", cell_px=8,
+                          from_tick=15, to_tick=25)
+    assert len(paths) == 1  # seul t=20 dans [15,25]
+
+
+def test_render_mp4_produces_nonempty_file(tmp_path):
+    events, meta = _write_run(tmp_path)
+    out = str(tmp_path / "clip.mp4")
+    res = render_events(events, meta, out, fmt="mp4", fps=5, cell_px=8)
+    assert res == out
+    assert os.path.getsize(out) > 0

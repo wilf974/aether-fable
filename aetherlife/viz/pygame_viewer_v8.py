@@ -70,3 +70,55 @@ def _draw_frame(
     )
     surf.blit(font.render(txt, True, HUD_FG), (6, rows * cell_px + 6))
     return surf
+
+
+def render_events(
+    events_path: str,
+    meta_path: str,
+    out_path: str,
+    *,
+    fmt: str = "mp4",
+    fps: int = 30,
+    from_tick: int = 0,
+    to_tick: int | None = None,
+    focus_lineage: int | None = None,
+    cell_px: int = 16,
+):
+    """Rend un events.jsonl en frames.
+
+    fmt='png'  -> out_path est un dossier ; retourne la liste des PNG.
+    fmt='gif'|'mp4' -> out_path est le fichier clip ; retourne out_path.
+    """
+    meta = load_meta(meta_path)
+    if not pygame.get_init():
+        pygame.init()
+    pygame.font.init()
+
+    png_paths: list[str] = []
+    video_frames = []
+    if fmt == "png":
+        os.makedirs(out_path, exist_ok=True)
+
+    for ev in iter_events(events_path):
+        if ev["t"] < from_tick:
+            continue
+        if to_tick is not None and ev["t"] > to_tick:
+            break
+        surf = _draw_frame(ev, meta, cell_px, focus_lineage)
+        if fmt == "png":
+            p = os.path.join(out_path, f"frame_{ev['t']:06d}.png")
+            pygame.image.save(surf, p)
+            png_paths.append(p)
+        else:
+            # (W,H,3) -> (H,W,3) pour imageio
+            video_frames.append(pygame.surfarray.array3d(surf).swapaxes(0, 1))
+
+    if fmt == "png":
+        return png_paths
+
+    parent = os.path.dirname(os.path.abspath(out_path))
+    os.makedirs(parent, exist_ok=True)
+    import imageio.v2 as imageio
+
+    imageio.mimsave(out_path, video_frames, fps=fps)
+    return out_path
