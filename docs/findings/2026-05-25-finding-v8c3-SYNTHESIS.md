@@ -140,10 +140,15 @@ densité (max_pop=100, mean=23 voisins/r=3), la coop devient triviale.
 À densité réduite (max_pop=60, mean=9), un sous-ensemble de seeds (~14 %,
 phase D) développe un apprentissage spatial robuste.
 
-**Découverte secondaire** : distribution bimodale du token dominant
-(mode "convention" token 0 vs mode "coordination" tokens 1/2).
+**Découverte secondaire** : ~~distribution bimodale du token dominant
+(mode "convention" token 0 vs mode "coordination" tokens 1/2)~~.
+**RÉFUTÉE (2026-05-30)** sur 50 seeds : l'identité du token dominant ne
+sépare rien (`{0:14,1:7,2:18,3:11}`), convention saine = **0/50**, un seul
+attracteur réel = coordination spatiale. La bimodalité était un artefact
+10-seed + token-identity + seuil `dom_share`. Voir
+`docs/findings/2026-05-30-finding-v8c3-convention-not-an-attractor.md`.
 
-**Statut** : Validé sur 10 seeds.
+**Statut** : ~~Validé sur 10 seeds~~ → réfuté à 50 seeds.
 
 ### 3.2 Finding 2 — `language-cost-coconstitution.md`
 
@@ -236,7 +241,7 @@ Les 3 findings combinés font émerger un mécanisme classique des
 
 | Phénomène | Réalisation dans AetherLife |
 |---|---|
-| Multi-stabilité | 2 bassins d'attraction (convention vs coordination) |
+| Multi-stabilité | ~~2 bassins (convention vs coordination)~~ → **1 attracteur sain (coordination)** + échec/diffus (réfuté 50 seeds, 2026-05-30) |
 | Bifurcation transcritique | Effet causal à vcost ≈ 0.045 |
 | Contingence historique | Régime "very good" rare (~14 %, phase D) |
 | Confondants paramétriques | Densité initiale, coût énergétique |
@@ -254,7 +259,8 @@ La théorie unifiée fait **5 prédictions falsifiables** :
 | P2 | ~~Au-dessus de vcost=0.1, l'effet devrait s'inverser (étouffement)~~ **RÉFUTÉE (2026-05-29)** : à 0.1 le système reste baseline (very_good 13,3 %), à 0.2 il **remonte** (33,3 %, cl_trend +5,47, vocalize robuste). Le coût élevé **trie** au lieu d'étouffer (handicap de Zahavi). Seuil d'étouffement éventuel > 0.2. | ✅ Fait — 15 seeds × {0.1, 0.2}. Voir `2026-05-29-finding-v8c3-p2-etouffement-refuted.md` |
 | P3 | À vcost < 0.04, aucun seed ne devrait montrer Δcl < −3 même chez very good | Confirmer via runs |
 | P4 | Le seuil critique vcost ≈ 0.045 devrait être **invariant** à d'autres paramètres (max_pop, bonus_energy) | Tester à max_pop=80, bonus=70 |
-| P5 | La distribution bimodale convention/coordination devrait disparaître si on augmente diversité de lignées | Tester avec 3+ affinities forcées |
+| ~~P5~~ | ~~La distribution bimodale convention/coordination devrait disparaître si on augmente diversité de lignées~~ **PRÉMISSE RÉFUTÉE (2026-05-30)** : pas de bimodalité (convention saine 0/50). Voir `convention-not-an-attractor.md` | — |
+| **P5-coord** (redéfini) | La **diversité de lignées forcée** (3+ affinities) augmente le **taux/qualité de l'unique attracteur coordination** (seul split réel = coordination vs échec) | Tester avec 3+ affinities forcées |
 
 ---
 
