@@ -107,7 +107,7 @@ def record(
             }
             spots = [
                 {"r": pos[0], "c": pos[1], "n": _spot_adjacency(env, pos)}
-                for pos in env.gather_spots
+                for pos in getattr(env, "gather_spots", [])
             ]
             ev = {
                 "t": t, "season": int(env.season), "n_alive": env.n_alive,

@@ -104,7 +104,7 @@ def render_events(
     to_tick: int | None = None,
     focus_lineage: int | None = None,
     cell_px: int = 16,
-):
+) -> "list[str] | str":
     """Rend un events.jsonl en frames.
 
     fmt='png'  -> out_path est un dossier ; retourne la liste des PNG.
