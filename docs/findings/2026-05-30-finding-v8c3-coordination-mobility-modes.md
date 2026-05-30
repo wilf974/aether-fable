@@ -128,16 +128,35 @@ de l'outlier seed14, non répliqué.
   la robustesse. Seuils village/migration (0.8 / 0.5) à valider sur la distribution
   continue observée.
 
+## 6bis. Chasse au driver — 4 hypothèses testées, 4 réfutées (n=20, 2026-05-31)
+
+| Driver candidat | Mesure | Verdict |
+|---|---|---|
+| Profondeur du creux | creux MIG=16.7 vs VIL=11.8 | ❌ sens inverse |
+| Identité d'affinité (lignée dominante) | MIG=[0,1,3] dispersé | ❌ |
+| Concentration d'affinité | VIL 88 % vs mobile 71 % | ~ faible, contre-ex. seed14@99 %, seed16(vil)@59 % |
+| Position des survivants au creux | d(surv,début) < d(surv,fin) pour TOUS les modes (MIG 3.0 vs 12.7) | ❌ |
+
+**Résultat structurant** : les migrateurs bottleneckent **dans leur zone d'origine**
+(survivants proches du début), puis **relocalisent APRÈS repopulation**. La migration
+n'est **pas un effet fondateur** — c'est une **relocalisation post-recovery d'une
+population mature**. Signature dynamique : **un saut de quadrant précoce-mais-post-creux
+puis re-fixation** (seed46 [2,0,0,0,0], seed19 [1,2,2,2,2]), pas un vagabondage continu.
+
+**Conséquence** : la cause la plus parcimonieuse est **environnementale** (épuisement
+de la food locale → rester si elle repousse sur place, partir sinon). Or **la grille
+de food n'est pas dans events.jsonl**. → prochain pas-outil identifié.
+
 ## 7. Suite
 
-1. **Chercher le vrai driver** (gratuit, données existantes) : corréler le mode
-   avec la trajectoire multi-fenêtre de la zone dense, le coin de settling,
-   l'affinité de la lignée dominante, la food/biome locale, la phase saisonnière.
+1. **Enrichir le recorder** : enregistrer la grille de food/biome par tick
+   (events.jsonl v2), puis tester si la migration suit la déplétion locale de food.
+   C'est le test direct de l'hypothèse environnementale — bloqué tant que la food
+   n'est pas capturée.
 2. **Officialiser la métrique** : intégrer `corr_occupation` dans le pipeline
    d'agrégation comme dimension de caractérisation à part entière.
 3. À terme : régime à **ressource non-stationnaire** pour *induire* la migration
-   et l'étudier comme comportement collectif — mais d'abord comprendre ce qui la
-   déclenche spontanément.
+   et l'étudier comme comportement collectif.
 
 ## 8. Reproduire
 
