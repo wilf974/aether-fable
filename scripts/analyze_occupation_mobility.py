@@ -84,12 +84,18 @@ def analyze(clip_dir: str) -> dict:
     path = sum(math.dist(coms[i], coms[i - 1]) for i in range(1, len(coms)))
     net = math.dist(coms[0], coms[-1]) if coms else 0.0
 
+    # Creux démographique (driver candidat de la migration)
+    alive = [e["n_alive"] for e in evs if "n_alive" in e]
+    min_alive = min(alive) if alive else 0
+    min_tick = next((e["t"] for e in evs if e.get("n_alive") == min_alive), None)
+
     return {
         "clip": clip_dir,
         "seed": meta.get("seed"),
         "frames": n,
         "corr_early_late": round(corr, 3),
-        "com_path": round(path, 0),
+        "min_alive": min_alive,
+        "min_tick": min_tick,
         "com_net": round(net, 1),
         "verdict": _verdict(corr),
     }
@@ -100,15 +106,31 @@ def main() -> None:
     if not clips:
         print("usage: analyze_occupation_mobility.py <clip_dir> [clip_dir ...]")
         sys.exit(1)
-    print(f"{'seed':>5} {'frames':>6} {'corr_e~l':>9} {'com_path':>9} "
-          f"{'com_net':>8}  verdict")
+    print(f"{'seed':>5} {'frames':>6} {'corr_e~l':>9} {'minAlive':>8} "
+          f"{'minTick':>8} {'com_net':>8}  verdict")
+    rows = []
     for c in clips:
         r = analyze(c)
         if "error" in r:
             print(f"  {c}: {r['error']}")
             continue
+        rows.append(r)
         print(f"{str(r['seed']):>5} {r['frames']:>6} {r['corr_early_late']:>9} "
-              f"{r['com_path']:>9} {r['com_net']:>8}  {r['verdict']}")
+              f"{r['min_alive']:>8} {str(r['min_tick']):>8} {r['com_net']:>8}  "
+              f"{r['verdict']}")
+
+    # Synthèse : taux des modes + test du driver creux↔migration
+    if len(rows) >= 2:
+        from collections import Counter
+        modes = Counter(r["verdict"].split()[0] for r in rows)
+        print(f"\n--- {len(rows)} seeds : "
+              + "  ".join(f"{k}={v}" for k, v in modes.items()) + " ---")
+        mig = [r["min_alive"] for r in rows if r["verdict"].startswith("MIGRATION")]
+        vil = [r["min_alive"] for r in rows if r["verdict"].startswith("VILLAGE")]
+        if mig and vil:
+            print(f"creux moyen - MIGRATION={st.mean(mig):.1f}  "
+                  f"VILLAGE={st.mean(vil):.1f}  "
+                  f"(driver: creux profond -> migration ?)")
 
 
 if __name__ == "__main__":
