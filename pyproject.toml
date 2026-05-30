@@ -18,6 +18,12 @@ dev = [
     "pytest>=7.0",
     "hypothesis>=6.100",
 ]
+viz = [
+    "pygame-ce>=2.5",
+    "imageio>=2.34",
+    "imageio-ffmpeg>=0.4",
+    "pillow>=10.0",
+]
 
 [tool.setuptools.packages.find]
 include = ["aetherlife*"]
