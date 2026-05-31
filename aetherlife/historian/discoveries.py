@@ -36,6 +36,7 @@ class DiscoveryCategory(str, Enum):
     SELECTION = "selection"
     INSTABILITY = "instability"
     COOPERATION = "cooperation"
+    SPATIAL = "spatial"
 
 
 @dataclass(frozen=True)
@@ -656,6 +657,58 @@ class DiscoveriesDetector:
 
         return out
 
+    def detect_mobility(self) -> list[Discovery]:
+        """V8-C3 — mobilité spatiale de la coordination (score CONTINU).
+
+        Lit `report["spatial_mobility_v8c3"]` (produit par overnight_v8b1 :
+        corr d'occupation entre fenêtre début et fenêtre fin). Émet
+        `mobility_score = corr_occupation` + flag bassin village. PAS de classes
+        discrètes (cf. finding 2026-05-30 coordination-mobility-modes : la
+        mobilité est un continuum avec un attracteur village ~0.95).
+
+        confidence = 1 - corr (clampée [0,1]) = confiance que de la MOBILITÉ
+        est présente (village stable → faible ; relocalisation → élevée).
+        """
+        sm = self._get("spatial_mobility_v8c3") or {}
+        corr = sm.get("corr_occupation_start_end")
+        if corr is None:
+            return []
+        village = sm.get("village_basin")
+        confidence = min(1.0, max(0.0, 1.0 - corr))
+        if village:
+            headline = (
+                f"Pattern suggère une coordination SÉDENTAIRE (bassin village) : "
+                f"corr d'occupation début↔fin = {corr:.2f} (≥ 0.8). La zone "
+                f"d'agrégation reste fixe sur tout le run."
+            )
+        else:
+            headline = (
+                f"Pattern suggère une MOBILITÉ collective : corr d'occupation "
+                f"début↔fin = {corr:.2f} (< 0.8). La zone d'agrégation se "
+                f"relocalise au cours du run."
+            )
+        return [Discovery(
+            slug="coordination_mobility",
+            category=DiscoveryCategory.SPATIAL,
+            confidence=confidence,
+            headline=headline,
+            evidence={
+                "mobility_score": corr,
+                "village_basin": village,
+                "start_window_ticks": sm.get("start_window_ticks"),
+                "end_window_ticks": sm.get("end_window_ticks"),
+                "n_samples_start": sm.get("n_samples_start"),
+                "n_samples_end": sm.get("n_samples_end"),
+            },
+            validation=[
+                "Régresser mobility_score (continu) vs creux démographique, "
+                "food, saisonnalité, turnover de lignées sur n≥20 seeds",
+                "Ne PAS réifier en classes village/migration : c'est un continuum",
+                "Hypothèse environnementale : la mobilité suit-elle la "
+                "déplétion locale de food ?",
+            ],
+        )]
+
     def detect_instability(self) -> list[Discovery]:
         """Instabilité numérique DQN."""
         loss_curve = self._get("curves", "loss") or []
@@ -702,7 +755,7 @@ class DiscoveriesDetector:
             self.detect_language, self.detect_causality,
             self.detect_cognition,
             self.detect_selection, self.detect_instability,
-            self.detect_cooperation,
+            self.detect_cooperation, self.detect_mobility,
         ):
             try:
                 out.extend(fn())
