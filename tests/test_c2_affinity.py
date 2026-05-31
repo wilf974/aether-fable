@@ -49,3 +49,28 @@ def test_run_overnight_records_condition_in_report(tmp_path):
         regime="coordination_collective", n_initial_affinities=2,
     )
     assert report["config"]["n_initial_affinities"] == 2
+
+
+from collections import Counter
+
+
+def _affinities(k):
+    from overnight_v8b1 import build_env
+    env = build_env(seed=1, regime="coordination_collective",
+                    n_initial_affinities=k)
+    env.reset(seed=1)
+    return Counter(a.biome_affinity for a in env._agents)  # noqa: SLF001
+
+
+def test_reset_k1_all_affinity_zero():
+    assert set(_affinities(1)) == {0}
+
+
+def test_reset_k2_two_affinities_balanced():
+    c = _affinities(2)
+    assert set(c) == {0, 1}
+    assert c[0] == 10 and c[1] == 10  # 20 agents, round-robin %2
+
+
+def test_reset_k4_balanced_5_each_nonregression():
+    assert dict(_affinities(4)) == {0: 5, 1: 5, 2: 5, 3: 5}
