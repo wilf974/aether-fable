@@ -122,6 +122,9 @@ def test_summarize_c2_paired_delta_and_sign():
     # 2/3 seeds ont k1 > k4
     assert summary["n_seeds_k1_gt_k4"] == 2
     assert summary["n_paired"] == 3
+    # mobility_k2 presente dans paired (None si k2 absent du jeu de donnees)
+    assert "mobility_k2" in summary["paired"][1]
+    assert summary["paired"][1]["mobility_k2"] is None
 
 
 def extract_dict(seed, k, mobility):

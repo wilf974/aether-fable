@@ -54,16 +54,20 @@ def summarize_c2(rows: list[dict[str, Any]]) -> dict[str, Any]:
             if m1 is not None and m4 is not None:
                 n_paired += 1
                 delta = m1 - m4
-                paired[seed] = {"mobility_k1": m1, "mobility_k4": m4,
-                                "delta_k1_k4": delta}
+                paired[seed] = {
+                    "mobility_k1": m1,
+                    "mobility_k2": byk[2]["mobility_score"] if 2 in byk else None,
+                    "mobility_k4": m4,
+                    "delta_k1_k4": delta,
+                }
                 if m1 > m4:
                     n_k1_gt_k4 += 1
     by_cond: dict[int, dict] = {}
     for k in (1, 2, 4):
-        ms = [r["mobility_score"] for r in rows
-              if r["k"] == k and r["mobility_score"] is not None]
-        vb = [r["village_basin"] for r in rows
-              if r["k"] == k and r["village_basin"] is not None]
+        valid = [r for r in rows
+                 if r["k"] == k and r["mobility_score"] is not None]
+        ms = [r["mobility_score"] for r in valid]
+        vb = [r["village_basin"] for r in valid if r["village_basin"] is not None]
         alive = [r["n_alive"] for r in rows if r["k"] == k]
         gather = [r["gather_successes"] for r in rows if r["k"] == k]
         ext = [r["extinction"] for r in rows if r["k"] == k]
@@ -93,9 +97,11 @@ def main() -> None:
             with open(f, encoding="utf-8") as fh:
                 rows.append(extract_c2(json.load(fh)))
     s = summarize_c2(rows)
-    print(f"{'seed':>5} {'mob_k1':>7} {'mob_k4':>7} {'delta(k1-k4)':>12}")
+    print(f"{'seed':>5} {'mob_k1':>7} {'mob_k2':>7} {'mob_k4':>7} {'delta(k1-k4)':>12}")
     for seed, p in sorted(s["paired"].items()):
-        print(f"{str(seed):>5} {p['mobility_k1']:>7.3f} "
+        k2 = p["mobility_k2"]
+        k2s = f"{k2:.3f}" if k2 is not None else "None"
+        print(f"{str(seed):>5} {p['mobility_k1']:>7.3f} {k2s:>7} "
               f"{p['mobility_k4']:>7.3f} {p['delta_k1_k4']:>+12.3f}")
     print(f"\n--- {s['n_seeds_k1_gt_k4']}/{s['n_paired']} seeds : "
           f"mobility_k1 > mobility_k4 (test du signe apparie) ---")
