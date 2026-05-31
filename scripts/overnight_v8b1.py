@@ -71,6 +71,15 @@ def build_env(
     - 'niches'   : V8-B1.5 — biomes Voronoi + compétition locale +
                    max_pop élevé. Cible : ≥3 lignées coexistantes après 100k.
     """
+    _COORD_REGIMES = {
+        "coordination", "coordination_hidden",
+        "coordination_hard", "coordination_collective",
+    }
+    if n_initial_affinities != 4 and regime not in _COORD_REGIMES:
+        raise ValueError(
+            f"n_initial_affinities={n_initial_affinities} non supporte hors "
+            f"regime coordination (got regime={regime!r})"
+        )
     if regime == "darwinian":
         metabolism = 0.65
         winter_f = 0.3

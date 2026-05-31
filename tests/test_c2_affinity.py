@@ -1,5 +1,6 @@
 import os
 import sys
+from collections import Counter
 
 import pytest
 
@@ -42,6 +43,12 @@ def test_build_env_defaults_to_4():
     assert env.cfg.biomes.n_initial_affinities == 4
 
 
+def test_build_env_rejects_non_default_affinities_outside_coordination():
+    from overnight_v8b1 import build_env
+    with pytest.raises(ValueError):
+        build_env(seed=1, regime="training", n_initial_affinities=2)
+
+
 def test_run_overnight_records_condition_in_report(tmp_path):
     from overnight_v8b1 import run_overnight
     report = run_overnight(
@@ -49,9 +56,6 @@ def test_run_overnight_records_condition_in_report(tmp_path):
         regime="coordination_collective", n_initial_affinities=2,
     )
     assert report["config"]["n_initial_affinities"] == 2
-
-
-from collections import Counter
 
 
 def _affinities(k):
