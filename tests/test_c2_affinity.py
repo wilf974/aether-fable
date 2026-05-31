@@ -78,3 +78,52 @@ def test_reset_k2_two_affinities_balanced():
 
 def test_reset_k4_balanced_5_each_nonregression():
     assert dict(_affinities(4)) == {0: 5, 1: 5, 2: 5, 3: 5}
+
+
+def _fake_report(seed, k, mobility, n_alive, gather, aff_dist):
+    return {
+        "config": {"seed": seed, "n_initial_affinities": k},
+        "spatial_mobility_v8c3": {
+            "corr_occupation_start_end": mobility,
+            "village_basin": (mobility is not None and mobility >= 0.8),
+        },
+        "final_state": {"n_alive": n_alive, "affinity_distribution": aff_dist},
+        "cooperative_v8c3": {"gather_successes_total": gather},
+    }
+
+
+def test_extract_c2_row():
+    from aggregate_c2 import extract_c2
+    r = extract_c2(_fake_report(1, 1, 0.9, 60, 120, {"0": 60}))
+    assert r["seed"] == 1 and r["k"] == 1
+    assert r["mobility_score"] == 0.9 and r["village_basin"] is True
+    assert r["n_alive"] == 60 and r["gather_successes"] == 120
+    assert r["extinction"] is False
+    assert r["aff_conc_final"] == 1.0  # 60/60
+
+
+def test_extract_c2_extinction_and_affconc():
+    from aggregate_c2 import extract_c2
+    r = extract_c2(_fake_report(2, 4, None, 0, 0, {"0": 0}))
+    assert r["extinction"] is True
+    assert r["aff_conc_final"] == 0.0  # population vide
+
+
+def test_summarize_c2_paired_delta_and_sign():
+    from aggregate_c2 import summarize_c2
+    rows = [
+        extract_dict(1, 1, 0.90), extract_dict(1, 4, 0.40),
+        extract_dict(2, 1, 0.85), extract_dict(2, 4, 0.50),
+        extract_dict(3, 1, 0.30), extract_dict(3, 4, 0.60),  # contre-exemple
+    ]
+    summary = summarize_c2(rows)
+    # delta intra-seed k1-k4
+    assert summary["paired"][1]["delta_k1_k4"] == pytest.approx(0.50)
+    # 2/3 seeds ont k1 > k4
+    assert summary["n_seeds_k1_gt_k4"] == 2
+    assert summary["n_paired"] == 3
+
+
+def extract_dict(seed, k, mobility):
+    from aggregate_c2 import extract_c2
+    return extract_c2(_fake_report(seed, k, mobility, 60, 100, {"0": 50, "1": 10}))
