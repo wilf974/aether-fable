@@ -62,6 +62,7 @@ def build_env(
     vocalize_energy_cost: float = 0.05,
     max_pop_override: int | None = None,
     bonus_energy_override: float | None = None,
+    n_initial_affinities: int = 4,
 ) -> SeasonalMultiAgentFoodGrid:
     """Config selon regime :
 
@@ -70,6 +71,15 @@ def build_env(
     - 'niches'   : V8-B1.5 — biomes Voronoi + compétition locale +
                    max_pop élevé. Cible : ≥3 lignées coexistantes après 100k.
     """
+    _COORD_REGIMES = {
+        "coordination", "coordination_hidden",
+        "coordination_hard", "coordination_collective",
+    }
+    if n_initial_affinities != 4 and regime not in _COORD_REGIMES:
+        raise ValueError(
+            f"n_initial_affinities={n_initial_affinities} non supporte hors "
+            f"regime coordination (got regime={regime!r})"
+        )
     if regime == "darwinian":
         metabolism = 0.65
         winter_f = 0.3
@@ -205,6 +215,7 @@ def build_env(
             hidden_food=(regime in (
                 "coordination_hidden", "coordination_hard",
             )),
+            n_initial_affinities=n_initial_affinities,
         )
         competition_cfg = CompetitionConfig(
             enabled=True, radius=3,
@@ -375,6 +386,7 @@ def run_overnight(
     vocalize_energy_cost: float = 0.05,
     max_pop_override: int | None = None,
     bonus_energy_override: float | None = None,
+    n_initial_affinities: int = 4,
 ) -> dict:
     env = build_env(
         seed, regime=regime,
@@ -382,6 +394,7 @@ def run_overnight(
         vocalize_energy_cost=vocalize_energy_cost,
         max_pop_override=max_pop_override,
         bonus_energy_override=bonus_energy_override,
+        n_initial_affinities=n_initial_affinities,
     )
     print(f"REGIME={regime}"
           + (f"  ABLATION@{disable_vocalize_after_tick}"
@@ -661,6 +674,7 @@ def run_overnight(
         "config": {
             "n_ticks": n_ticks, "seed": seed, "device": device,
             "obs_dim": policy.obs_dim, "vision_radius": cfg.vision_radius,
+            "n_initial_affinities": n_initial_affinities,
         },
         "runtime": {
             "duration_s": dt, "ticks_per_sec": n_ticks / dt,
@@ -909,6 +923,11 @@ def main() -> None:
         help="V8-C3 P1 — Override CooperativeConfig.bonus_energy. "
              "Ex: 150.0 pour P1 (récompense renforcée).",
     )
+    p.add_argument(
+        "--n-initial-affinities", type=int, default=4,
+        help="V8-C3 C2 — Nb d'affinités assignées aux fondateurs (1=mono, "
+             "4=multi/défaut). Test causal diversité d'affinité.",
+    )
     args = p.parse_args()
     run_overnight(
         n_ticks=args.ticks, seed=args.seed, device=args.device,
@@ -918,6 +937,7 @@ def main() -> None:
         vocalize_energy_cost=args.vocalize_cost,
         max_pop_override=args.max_pop_override,
         bonus_energy_override=args.bonus_energy_override,
+        n_initial_affinities=args.n_initial_affinities,
     )
 
 

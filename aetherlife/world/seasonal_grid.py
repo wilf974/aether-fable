@@ -548,8 +548,9 @@ class SeasonalMultiAgentFoodGrid:
                 a.traits = AgentTraits.random(self._spawn_rng, tcfg)
             # V8-B1.6 — tirage affinity uniforme ∈ {0..3} pour fondateurs
             if bcfg.enabled and bcfg.affinity_enabled:
-                # Distribution uniforme via round-robin sur agent_id
-                a.biome_affinity = a.agent_id % 4
+                # V8-C3 C2 — round-robin sur n_initial_affinities (défaut 4).
+                # 1 = mono-affinité (tous biome 0), 4 = multi équilibré.
+                a.biome_affinity = a.agent_id % bcfg.n_initial_affinities
                 # Réassigner sa position dans un tile de son biome (si possible)
                 tiles = affinity_tiles.get(a.biome_affinity, [])
                 # Filtrer ceux déjà utilisés
