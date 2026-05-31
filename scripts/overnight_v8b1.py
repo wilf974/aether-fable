@@ -51,6 +51,9 @@ from aetherlife.world.seasonal_grid import (
     SeasonalConfig, SeasonalMultiAgentConfig, SeasonalMultiAgentFoodGrid,
 )
 from aetherlife.world.vocabulary import VocabularyConfig
+from aetherlife.historian.spatial_mobility import (
+    OccupancyAccumulator, build_spatial_mobility_block,
+)
 
 
 def build_env(
@@ -428,6 +431,12 @@ def run_overnight(
     t0 = time.time()
     os.makedirs(out_dir, exist_ok=True)
 
+    # V8-C3 chantier A — rétention occupation (observation-only : aucun impact
+    # sur la dynamique/RNG). Fenêtres début/fin = 10 % des ticks chacune.
+    _mob_w = max(1, n_ticks // 10)
+    _mob_start = OccupancyAccumulator(env.cfg.rows, env.cfg.cols)
+    _mob_end = OccupancyAccumulator(env.cfg.rows, env.cfg.cols)
+
     for t in range(1, n_ticks + 1):
         if env.n_alive == 0:
             print(f"[t={t}] EXTINCTION")
@@ -442,6 +451,14 @@ def run_overnight(
         if causality_tracker is not None:
             causality_tracker.push_actions(t, dict(actions))
         env.step(actions)
+
+        # V8-C3 chantier A — accumulation occupation (fenêtres début/fin)
+        if t <= _mob_w or t > n_ticks - _mob_w:
+            _pos = [
+                (a.pos[0], a.pos[1])
+                for a in env._agents if a.alive  # noqa: SLF001
+            ]
+            (_mob_start if t <= _mob_w else _mob_end).add_positions(_pos)
 
         # V8-B2.2 — Push emissions de tokens (lecture du buffer env._tokens_this_tick)
         if causality_tracker is not None and env.cfg.vocabulary.enabled:
@@ -720,6 +737,11 @@ def run_overnight(
             "divergence": divergence_curve,
             "loss": loss_curve,
         },
+        "spatial_mobility_v8c3": build_spatial_mobility_block(
+            _mob_start, _mob_end,
+            start_window=(0, _mob_w),
+            end_window=(n_ticks - _mob_w, n_ticks),
+        ),
     }
 
     report_path = os.path.join(out_dir, f"overnight_v8b1_seed{seed}.json")
