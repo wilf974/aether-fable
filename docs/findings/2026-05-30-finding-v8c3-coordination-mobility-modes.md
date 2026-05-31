@@ -171,16 +171,67 @@ voient « village » (0.946) — c'est bien un village. **Le 10 % a été abando
 `village_basin = mobility_score ≥ 0.8`. La distribution n=20 (village 55 %, mean
 0.746, continuum + attracteur ~0.95) est confirmée sous la métrique officielle.
 
-## 7. Suite
+## 6quater. Driver — leads sous la métrique OFFICIELLE (régression n=20, 2026-05-31)
 
-1. **Enrichir le recorder** : enregistrer la grille de food/biome par tick
-   (events.jsonl v2), puis tester si la migration suit la déplétion locale de food.
-   C'est le test direct de l'hypothèse environnementale — bloqué tant que la food
-   n'est pas capturée.
-2. **Officialiser la métrique** : intégrer `corr_occupation` dans le pipeline
-   d'agrégation comme dimension de caractérisation à part entière.
-3. À terme : régime à **ressource non-stationnaire** pour *induire* la migration
-   et l'étudier comme comportement collectif.
+Régression de `mobility_score` (tiers, officiel) contre les variables déjà
+présentes dans events.jsonl, 20 seeds :
+
+| Variable | corr univ. avec mobility_score | Lecture (haut = village) |
+|---|---|---|
+| **creux** (min_alive) | **−0.477** | creux PROFOND → village |
+| **aff_conc** (concentration d'affinité) | **+0.468** | affinité homogène → village |
+| er_mean (energy ratio moyen) | +0.268 | — |
+| dom_aff | −0.273 | — |
+| vocal_mean | +0.193 | — |
+| hot_frac | −0.107 | — |
+| n_lin_end | 0.000 | aucun signal |
+
+OLS multivarié : R²=0.53 (n=20, 7 préds → **sur-ajusté, indicatif**).
+
+**Deux prédicteurs de tête (~0.47) racontent la même histoire — l'HOMOGÉNÉITÉ
+fondatrice** :
+- **Creux profond → village** : peu de survivants → effet fondateur fort →
+  monoculture spatiale. Creux faible → survivants dispersés → centres concurrents
+  → mobilité.
+- **Affinité concentrée → village** : tous préfèrent le même biome → entassement
+  dans une zone. Affinités mixtes → tiraillement entre biomes → mobilité.
+
+**Point méthodologique majeur** : le 30/05 le creux avait été « réfuté » comme
+driver — mais avec la **mauvaise fenêtre (10 %)**. Sous la métrique correcte
+(tiers), le creux **prédit** (signe net, signal réel). *La correction de fenêtre
+a débloqué l'analyse causale* : mauvais instrument → faux null → bon instrument →
+signal. C'est le finding le plus précieux de la séquence.
+
+**Réserves** : signal modéré (r≈0.47, non déterministe — seed14 a un creux profond
+mais est mobile) ; creux et aff_conc probablement **collinéaires** (creux profond
+*cause* la monoculture d'affinité) ; n=20 ; R² sur-ajusté. Ce sont des **leads**,
+pas un driver résolu.
+
+## 7. Suite — chantier C REFORMULÉ (affinité/biome, pas déplétion food brute)
+
+La régression §6quater redirige C : le mécanisme suspecté n'est pas « la food
+bouge » mais **« affinité homogène → installation dans une seule zone-biome →
+village »**. D'où :
+
+**Question C** : les villages émergent-ils quand l'affinité dominante correspond
+à une **zone-biome stable et concentrée** ?
+
+**Hypothèse C** :
+```
+affinité homogène + creux fondateur profond → monoculture lignée/affinité
+    → occupation d'un biome dominant → VILLAGE
+affinités mixtes + creux faible → pôles concurrents → MOBILITÉ / relocalisation
+```
+
+**Recorder v2 — champs à capturer en priorité** : `biome_grid`, `food_grid`,
+`agent.affinity` (déjà = `aff`), `agent.position`, `local_biome_at_agent`,
+`food_density_by_biome`, `occupation_by_biome`. Puis tester la corrélation
+`mobility_score` ↔ {concentration d'affinité, adéquation affinité↔biome dominant,
+stabilité spatiale du biome occupé}.
+
+Sous-pistes :
+- Officialiser `mobility_score` dans `metrics.json` (déjà dans discoveries).
+- À terme : régime à **ressource non-stationnaire** pour *induire* la migration.
 
 ## 8. Reproduire
 
