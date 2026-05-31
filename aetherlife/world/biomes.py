@@ -108,6 +108,10 @@ class BiomeConfig:
     out_affinity_movement_mult: float = 2.5  # ×2.5 le movement cost hors
     reproduction_locked_to_affinity: bool = True
 
+    # V8-C3 C2 — nb d'affinités assignées aux fondateurs (round-robin).
+    # Défaut 4 = comportement historique (5/5/5/5 sur 20 agents). 1 = mono.
+    n_initial_affinities: int = 4
+
     # V8-B1.6 — Worldgen équilibré (force ≥1 seed de chaque type)
     balanced_seeds: bool = False
 
@@ -165,6 +169,11 @@ class BiomeConfig:
             raise ValueError(
                 f"out_affinity_movement_mult doit être >= 1.0 "
                 f"(got {self.out_affinity_movement_mult})"
+            )
+        if not (1 <= self.n_initial_affinities <= 4):
+            raise ValueError(
+                f"n_initial_affinities doit être dans [1, 4] "
+                f"(got {self.n_initial_affinities})"
             )
 
 
