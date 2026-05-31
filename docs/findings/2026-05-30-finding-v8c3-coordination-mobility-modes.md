@@ -147,6 +147,30 @@ puis re-fixation** (seed46 [2,0,0,0,0], seed19 [1,2,2,2,2]), pas un vagabondage 
 de la food locale → rester si elle repousse sur place, partir sinon). Or **la grille
 de food n'est pas dans events.jsonl**. → prochain pas-outil identifié.
 
+## 6ter. Métrique OFFICIELLE + correction de fenêtre (2026-05-31)
+
+`mobility_score` est désormais une **métrique officielle de l'Historien**
+(`detect_mobility` → discovery `coordination_mobility`), source unique de vérité :
+`aetherlife/historian/spatial_mobility.py::window_bounds`, importée par overnight
+ET par `analyze_occupation_mobility.py`.
+
+**La fenêtre de mesure ENCODE la définition de « mobilité » — résultat en soi.**
+En unifiant la métrique on a découvert que le choix initial (fenêtres début/fin =
+**10 %**) mesurait la mauvaise chose :
+
+| Fenêtre | seed31 | seed46 | village_basin (n=20) | Ce qu'elle mesure |
+|---|---|---|---|---|
+| 10 % début vs fin | 0.043 | 0.052 | 1/20 (5 %) | **founding_relocation** (départ→fin, quasi universel) |
+| **tiers (officiel)** | **0.946** | 0.150 | **11/20 (55 %)** | **settled_migration** (un village installé migre-t-il ?) |
+
+Le 1er ~10 % des ticks = transitoire de fondation (creux + dispersion depuis les
+positions de départ). seed31 **founde** dans une zone, relocalise une fois vers
+t≈1600, puis reste fixe : le 10 % le voit « migrateur » (0.043), les tiers le
+voient « village » (0.946) — c'est bien un village. **Le 10 % a été abandonné** ;
+`mobility_score` officiel = corr d'occupation **1er tiers vs 3e tiers**,
+`village_basin = mobility_score ≥ 0.8`. La distribution n=20 (village 55 %, mean
+0.746, continuum + attracteur ~0.95) est confirmée sous la métrique officielle.
+
 ## 7. Suite
 
 1. **Enrichir le recorder** : enregistrer la grille de food/biome par tick

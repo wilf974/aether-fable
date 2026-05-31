@@ -7,7 +7,15 @@ from aetherlife.historian.spatial_mobility import (
     build_spatial_mobility_block,
     is_village_basin,
     pearson_corr,
+    window_bounds,
 )
+
+
+def test_window_bounds_is_thirds_excluding_founding():
+    # Officiel : 1er tiers vs 3e tiers (le ~1er 10% de fondation est dilué,
+    # on compare des phases installées — pas le transitoire de départ).
+    assert window_bounds(16000) == ((0, 5333), (10667, 16000))
+    assert window_bounds(60) == ((0, 20), (40, 60))
 
 
 def test_pearson_corr_identical_is_one():

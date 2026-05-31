@@ -1,24 +1,31 @@
-"""Mesure village-vs-migration sur un (ou plusieurs) clip events.jsonl.
+"""Mesure officielle de mobilité spatiale sur des clips events.jsonl.
 
-Critère (défini avec l'utilisateur 2026-05-30) :
-    corr occupation début~fin > 0.8  → VILLAGE (agrégation sédentaire fixe)
-    corr occupation début~fin < 0.5  → MIGRATION (agrégation qui se relocalise)
-    entre les deux                   → dérive partielle
+SOURCE DE VÉRITÉ UNIQUE : `aetherlife.historian.spatial_mobility` — exactement
+la même métrique que l'Historien (fenêtres 10 % début/fin, occupation 8×8,
+corr de Pearson, seuil bassin village 0.8). La définition n'est PAS dupliquée
+ici : on importe le helper.
 
-Compagnon du V8 Replay Viewer : exploite l'events.jsonl produit par
-record_events_v8.py (positions par tick que les rapports agrégés n'ont pas).
+`mobility_score = corr_occupation_start_end` (continu ; ~1 = village sédentaire,
+plus bas = mobilité collective). Cf. finding 2026-05-30 coordination-mobility-modes.
+
+Nuance : le recorder échantillonne les positions (record_every) ; overnight les
+voit à chaque tick. La métrique (définition) est identique ; seule la densité
+d'échantillonnage diffère — sans impact sur la corr d'une distribution.
 
 Usage:
-    python scripts/analyze_occupation_mobility.py results/clip_seed25 results/clip_seed14 ...
+    python scripts/analyze_occupation_mobility.py results/clip_seed25 [clip_dir ...]
 """
 from __future__ import annotations
 
 import json
-import math
 import statistics as st
 import sys
 
-BINS = 8  # grille 8x8 de super-cellules
+from aetherlife.historian.spatial_mobility import (
+    OccupancyAccumulator,
+    build_spatial_mobility_block,
+    window_bounds,
+)
 
 
 def _load(clip_dir: str) -> tuple[dict, list[dict]]:
@@ -33,72 +40,30 @@ def _load(clip_dir: str) -> tuple[dict, list[dict]]:
     return meta, evs
 
 
-def _occ_hist(frames: list[dict], rows: int, cols: int) -> list[float]:
-    bs_r = max(1, rows // BINS)
-    bs_c = max(1, cols // BINS)
-    h = [0.0] * (BINS * BINS)
-    n = 0
-    for e in frames:
-        for a in e["agents"]:
-            bi = min(BINS - 1, a["r"] // bs_r) * BINS + min(BINS - 1, a["c"] // bs_c)
-            h[bi] += 1
-            n += 1
-    return [x / n for x in h] if n else h
-
-
-def _corr(x: list[float], y: list[float]) -> float:
-    mx, my = st.mean(x), st.mean(y)
-    num = sum((a - mx) * (b - my) for a, b in zip(x, y))
-    dx = sum((a - mx) ** 2 for a in x) ** 0.5
-    dy = sum((b - my) ** 2 for b in y) ** 0.5
-    return num / (dx * dy) if dx * dy else 0.0
-
-
-def _verdict(corr_first_last: float) -> str:
-    if corr_first_last > 0.8:
-        return "VILLAGE (sedentaire)"
-    if corr_first_last < 0.5:
-        return "MIGRATION (relocalisation)"
-    return "derive partielle"
-
-
 def analyze(clip_dir: str) -> dict:
     meta, evs = _load(clip_dir)
+    if not evs:
+        return {"clip": clip_dir, "error": "events.jsonl vide"}
     rows, cols = int(meta["rows"]), int(meta["cols"])
-    n = len(evs)
-    if n < 3:
-        return {"clip": clip_dir, "error": "trop peu de frames"}
-    third = n // 3
-    early, late = evs[:third], evs[-third:]
-    h_e = _occ_hist(early, rows, cols)
-    h_l = _occ_hist(late, rows, cols)
-    corr = _corr(h_e, h_l)
+    total = int(meta.get("total_ticks") or evs[-1]["t"])
+    (s0, s1), (e0, e1) = window_bounds(total)  # tiers — identique à l'Historien
 
-    coms = []
+    start = OccupancyAccumulator(rows, cols)
+    end = OccupancyAccumulator(rows, cols)
     for e in evs:
-        if not e["agents"]:
-            continue
-        cr = st.mean(a["r"] for a in e["agents"])
-        cc = st.mean(a["c"] for a in e["agents"])
-        coms.append((cr, cc))
-    path = sum(math.dist(coms[i], coms[i - 1]) for i in range(1, len(coms)))
-    net = math.dist(coms[0], coms[-1]) if coms else 0.0
+        t = e["t"]
+        if s0 < t <= s1:
+            start.add_positions([(a["r"], a["c"]) for a in e["agents"]])
+        elif e0 < t <= e1:
+            end.add_positions([(a["r"], a["c"]) for a in e["agents"]])
 
-    # Creux démographique (driver candidat de la migration)
+    block = build_spatial_mobility_block(
+        start, end, start_window=(s0, s1), end_window=(e0, e1),
+    )
     alive = [e["n_alive"] for e in evs if "n_alive" in e]
-    min_alive = min(alive) if alive else 0
-    min_tick = next((e["t"] for e in evs if e.get("n_alive") == min_alive), None)
-
-    return {
-        "clip": clip_dir,
-        "seed": meta.get("seed"),
-        "frames": n,
-        "corr_early_late": round(corr, 3),
-        "min_alive": min_alive,
-        "min_tick": min_tick,
-        "com_net": round(net, 1),
-        "verdict": _verdict(corr),
-    }
+    block["seed"] = meta.get("seed")
+    block["min_alive"] = min(alive) if alive else None
+    return block
 
 
 def main() -> None:
@@ -106,8 +71,8 @@ def main() -> None:
     if not clips:
         print("usage: analyze_occupation_mobility.py <clip_dir> [clip_dir ...]")
         sys.exit(1)
-    print(f"{'seed':>5} {'frames':>6} {'corr_e~l':>9} {'minAlive':>8} "
-          f"{'minTick':>8} {'com_net':>8}  verdict")
+
+    print(f"{'seed':>5} {'mobility_score':>14} {'village':>8} {'creux':>6}  notes")
     rows = []
     for c in clips:
         r = analyze(c)
@@ -115,22 +80,26 @@ def main() -> None:
             print(f"  {c}: {r['error']}")
             continue
         rows.append(r)
-        print(f"{str(r['seed']):>5} {r['frames']:>6} {r['corr_early_late']:>9} "
-              f"{r['min_alive']:>8} {str(r['min_tick']):>8} {r['com_net']:>8}  "
-              f"{r['verdict']}")
+        score = r["corr_occupation_start_end"]
+        score_s = f"{score:.3f}" if score is not None else "None"
+        note = (
+            "extinction" if score is None
+            else "village" if r["village_basin"]
+            else "mobile"
+        )
+        print(f"{str(r['seed']):>5} {score_s:>14} {str(r['village_basin']):>8} "
+              f"{str(r['min_alive']):>6}  {note}")
 
-    # Synthèse : taux des modes + test du driver creux↔migration
-    if len(rows) >= 2:
-        from collections import Counter
-        modes = Counter(r["verdict"].split()[0] for r in rows)
-        print(f"\n--- {len(rows)} seeds : "
-              + "  ".join(f"{k}={v}" for k, v in modes.items()) + " ---")
-        mig = [r["min_alive"] for r in rows if r["verdict"].startswith("MIGRATION")]
-        vil = [r["min_alive"] for r in rows if r["verdict"].startswith("VILLAGE")]
-        if mig and vil:
-            print(f"creux moyen - MIGRATION={st.mean(mig):.1f}  "
-                  f"VILLAGE={st.mean(vil):.1f}  "
-                  f"(driver: creux profond -> migration ?)")
+    scored = [r for r in rows if r["corr_occupation_start_end"] is not None]
+    if len(scored) >= 2:
+        scores = [r["corr_occupation_start_end"] for r in scored]
+        n_village = sum(1 for r in scored if r["village_basin"])
+        print(f"\n--- {len(scored)} seeds notes : "
+              f"village_basin={n_village} ({100*n_village/len(scored):.0f}%)  "
+              f"hors_bassin={len(scored)-n_village} ---")
+        print(f"mobility_score : mean={st.mean(scores):.3f}  "
+              f"median={st.median(scores):.3f}  "
+              f"min={min(scores):.3f}  max={max(scores):.3f}")
 
 
 if __name__ == "__main__":
