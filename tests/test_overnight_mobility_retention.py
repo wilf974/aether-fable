@@ -25,7 +25,7 @@ def test_run_overnight_emits_spatial_mobility_block(tmp_path):
         "start_window_ticks", "end_window_ticks",
         "n_samples_start", "n_samples_end",
     } <= set(sm)
-    # fenêtre = 10 % de 60 = 6 ticks
-    assert sm["start_window_ticks"] == [0, 6]
-    assert sm["end_window_ticks"] == [54, 60]
+    # fenêtre officielle = tiers (60//3 = 20) ; exclut la fondation
+    assert sm["start_window_ticks"] == [0, 20]
+    assert sm["end_window_ticks"] == [40, 60]
     assert sm["n_samples_start"] > 0

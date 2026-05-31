@@ -17,6 +17,21 @@ from typing import Any
 
 BINS = 8  # grille BINS×BINS de super-cellules
 VILLAGE_BASIN_THRESHOLD = 0.8
+MOBILITY_WINDOW_DIVISOR = 3  # tiers : 1er tiers vs 3e tiers
+
+
+def window_bounds(total_ticks: int) -> tuple[tuple[int, int], tuple[int, int]]:
+    """Fenêtres officielles de mesure : 1er tiers vs 3e tiers.
+
+    On EXCLUT la fondation : les ~10 % premiers ticks capturent le transitoire
+    de départ (creux + dispersion depuis les positions initiales) — quasi tous
+    les seeds « relocalisent » depuis leur point de fondation, ce qui n'est PAS
+    de la migration. En comparant le 1er tiers (fondation diluée, phase
+    installée) au 3e tiers, on mesure si un village INSTALLÉ migre vraiment.
+    Cf. correction méthodologique 2026-05-31.
+    """
+    w = max(1, total_ticks // MOBILITY_WINDOW_DIVISOR)
+    return (0, w), (total_ticks - w, total_ticks)
 
 
 def pearson_corr(x: list[float], y: list[float]) -> float:

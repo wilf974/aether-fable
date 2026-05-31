@@ -52,7 +52,7 @@ from aetherlife.world.seasonal_grid import (
 )
 from aetherlife.world.vocabulary import VocabularyConfig
 from aetherlife.historian.spatial_mobility import (
-    OccupancyAccumulator, build_spatial_mobility_block,
+    OccupancyAccumulator, build_spatial_mobility_block, window_bounds,
 )
 
 
@@ -432,8 +432,10 @@ def run_overnight(
     os.makedirs(out_dir, exist_ok=True)
 
     # V8-C3 chantier A — rétention occupation (observation-only : aucun impact
-    # sur la dynamique/RNG). Fenêtres début/fin = 10 % des ticks chacune.
-    _mob_w = max(1, n_ticks // 10)
+    # sur la dynamique/RNG). Fenêtres officielles = 1er tiers vs 3e tiers
+    # (exclut le transitoire de fondation — cf. window_bounds).
+    _mob_swin, _mob_ewin = window_bounds(n_ticks)
+    _mob_w = _mob_swin[1]  # = n_ticks // 3
     _mob_start = OccupancyAccumulator(env.cfg.rows, env.cfg.cols)
     _mob_end = OccupancyAccumulator(env.cfg.rows, env.cfg.cols)
 
@@ -739,8 +741,8 @@ def run_overnight(
         },
         "spatial_mobility_v8c3": build_spatial_mobility_block(
             _mob_start, _mob_end,
-            start_window=(0, _mob_w),
-            end_window=(n_ticks - _mob_w, n_ticks),
+            start_window=_mob_swin,
+            end_window=_mob_ewin,
         ),
     }
 
