@@ -207,30 +207,71 @@ mais est mobile) ; creux et aff_conc probablement **collinéaires** (creux profo
 *cause* la monoculture d'affinité) ; n=20 ; R² sur-ajusté. Ce sont des **leads**,
 pas un driver résolu.
 
-## 7. Suite — chantier C REFORMULÉ (affinité/biome, pas déplétion food brute)
+## 6quinquies. C0 — résolution corrélationnelle du driver (affinité↔biome, n=20, 2026-05-31)
 
-La régression §6quater redirige C : le mécanisme suspecté n'est pas « la food
-bouge » mais **« affinité homogène → installation dans une seule zone-biome →
-village »**. D'où :
+Test **gratuit, sans GPU, sans recorder v2** : le `biome_map` (Voronoi, statique,
+déterministe par seed) se **régénère** via `build_env(seed)` (pur numpy, la
+non-déterminisme CUDA n'affecte que le cerveau). Croisé avec les positions+affinité
+déjà dans les events.jsonl des 20 seeds.
 
-**Question C** : les villages émergent-ils quand l'affinité dominante correspond
-à une **zone-biome stable et concentrée** ?
+| Variable | corr avec mobility_score | Lecture |
+|---|---|---|
+| `aff_biome_match` (agent dans son biome d'affinité) | **−0.087** | **PLAT** : ~0.75 pour TOUS |
+| `occ_biome_conc` (occupation concentrée sur 1 biome) | +0.383 | 1 biome → village |
+| `aff_conc` (concentration d'affinité) | +0.468 | homogène → village |
+| `domAff == domBiome` | +0.105 | 19/20 True (peu discriminant) |
 
-**Hypothèse C** :
+**Résultat clé** : `aff_biome_match` est élevé (~0.75) et **constant** (corr ≈ 0)
+— village comme mobile, **tout le monde suit son biome d'affinité** (le gradient
+in-affinity food ×1.3 les y attire). Donc « être bien aligné sur son biome »
+**n'est PAS** le discriminateur.
+
+**Le discriminateur est l'HOMOGÉNÉITÉ de la population** (`aff_conc` +0.47, son
+expression spatiale `occ_biome_conc` +0.38) :
+
 ```
-affinité homogène + creux fondateur profond → monoculture lignée/affinité
-    → occupation d'un biome dominant → VILLAGE
-affinités mixtes + creux faible → pôles concurrents → MOBILITÉ / relocalisation
+mono-affinité  → mono-biome occupé   → VILLAGE   (seed31 : aff_conc 0.99, occ 0.84)
+multi-affinité → biomes concurrents  → MOBILITÉ  (seed46 : aff_conc 0.42, occ 0.37)
 ```
 
-**Recorder v2 — champs à capturer en priorité** : `biome_grid`, `food_grid`,
-`agent.affinity` (déjà = `aff`), `agent.position`, `local_biome_at_agent`,
-`food_density_by_biome`, `occupation_by_biome`. Puis tester la corrélation
-`mobility_score` ↔ {concentration d'affinité, adéquation affinité↔biome dominant,
-stabilité spatiale du biome occupé}.
+Chaîne causale (corrélationnelle) cohérente avec §6quater :
+```
+creux profond / homogénéité initiale → monoculture d'affinité → 1 seul biome → VILLAGE
+```
+
+> **Reformulation profonde** : la question initiale « la food bouge-t-elle ? »
+> s'est transformée en **« la structure sociale héritée (homogénéité d'affinité)
+> détermine la géographie collective »**. Mobiles = populations à affinités/biomes
+> concurrents (CONFIRMÉ). Villages = mono-affinité (pas « meilleurs dans leur biome »).
+
+**Réserves** : corrélationnel, n=20, **pas encore causal**. `aff_conc`, `creux` et
+`occ_biome_conc` sont collinéaires (creux profond *cause* la monoculture, qui
+*cause* l'occupation mono-biome). C0 résout le driver au niveau **observationnel** ;
+le test causal reste à faire (§7).
+
+**C1 (food_density_by_biome) abandonné comme priorité** : confirmerait surtout une
+mécanique déjà codée dans la config (in-affinity ×1.3), sans répondre au « qui
+village vs mobile » (= l'homogénéité, pas l'alignement).
+
+## 7. Suite — test CAUSAL (C2 / P5-coord)
+
+C0 a résolu le driver au niveau **corrélationnel** (homogénéité d'affinité →
+village). Le vrai prochain pas est **causal**, pas un recorder v2 (abandonné) :
+
+**C2 / P5-coord — manipulation directe de l'homogénéité d'affinité** :
+```
+condition A : forcer MONO-affinité (toutes lignées même affinité)
+condition B : forcer MULTI-affinité (diversité maximale forcée)
+→ mesurer mobility_score (officiel, tiers) dans chaque condition, multi-seed
+```
+Prédiction : A produit des villages (mobility_score ↑), B produit de la mobilité
+(score ↓). Si confirmé → l'homogénéité d'affinité **cause** la sédentarité
+(au-delà de la corrélation). C'est le P5 d'origine (diversité de lignées) **affûté**
+par C0 vers la bonne variable (affinité, pas lignée brute).
 
 Sous-pistes :
 - Officialiser `mobility_score` dans `metrics.json` (déjà dans discoveries).
+- C1 food (`food_density_by_biome`) : seulement si le test causal est ambigu.
 - À terme : régime à **ressource non-stationnaire** pour *induire* la migration.
 
 ## 8. Reproduire
