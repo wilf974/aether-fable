@@ -65,23 +65,13 @@ monotone, dominé par le bruit de petit-n-survivant.
 « villages ». k=1 est 60 % mort ; ses rares survivants ne sont pas plus village.
 Sans ce garde-fou, on aurait pu conclure à tort « mono → village » sur 4 survivants.
 
-## 3. Réinterprétation de C0 (hypothèse parcimonieuse, PAS fait établi)
+## 3. Réinterprétation de C0 — voir §7 (analyse temporelle C3)
 
-C0 observait `mono-affinité ↔ village` parmi les runs naturels. Le causal réfute
-`mono → village`. L'explication **la plus parcimonieuse compatible avec les données** :
-
-```
-village → monoculture d'affinité   (et non monoculture → village)
-```
-
-Une population qui **réussit à s'installer** (village : se fixe dans un biome,
-y prospère) voit naturellement l'affinité de ce biome **gagner** par sélection —
-la monoculture est une **conséquence** du succès du village, pas sa cause.
-
-> ⚠️ **Prudence** : le causal a réfuté `mono → village`. Il n'a **pas démontré
-> formellement** `village → mono` — il a seulement rendu cette direction beaucoup
-> plus crédible (en éliminant la direction inverse). À confirmer par un test dédié
-> (ex. mesurer la dérive d'affinité *dans* les villages naturels au cours du run).
+C0 observait `mono-affinité ↔ village`. C2 réfute `mono → village`. La première
+hypothèse de clôture était `village → mono` (la monoculture serait une conséquence
+du succès du village). **L'analyse temporelle §7 (C3) la corrige** : ni l'une ni
+l'autre direction séquentielle ne tient — les deux **co-émergent** suite à un
+goulot démographique commun. Lire §7.
 
 ## 4. Validité de la manip
 
@@ -104,9 +94,7 @@ la monoculture est une **conséquence** du succès du village, pas sa cause.
 - **Driver de la mobilité : toujours ouvert.** Le candidat C0 (homogénéité) est
   disqualifié comme cause. Reste à expliquer ce qui rend un village sédentaire vs
   mobile *à survie égale*.
-- Test futur de `village → mono` : suivre la trajectoire d'affinité *à l'intérieur*
-  des villages naturels (les 11 villages de la distribution n=20) — la monoculture
-  s'installe-t-elle APRÈS la sédentarisation ?
+- Test `village → mono` : **fait, voir §7** (a corrigé l'hypothèse de clôture).
 
 ## 6. Reproduire
 
@@ -117,3 +105,73 @@ python scripts/aggregate_c2.py results/c2_aff1/seed* results/c2_aff2/seed* \
     results/c2_aff4/seed*
 ```
 Reports : `results/c2_aff{1,2,4}/seed{1..10}/` (gitignorés, régénérables).
+
+---
+
+## 7. Clôture (C3) — analyse temporelle : co-émergence, pas séquence
+
+Test de précédence sur les 20 clips naturels (events.jsonl, positions+affinité par
+tick, **zéro GPU**). Pour chaque seed survivant : `t_mono` (1ʳᵉ fenêtre/10 où
+`aff_conc ≥ 0.8 × final`) vs `t_settle` (1ʳᵉ fenêtre dont l'occupation corrèle
+≥ 0.8 avec le tiers final).
+
+| | t_settle moy | t_mono moy | mono AVANT settle |
+|---|---|---|---|
+| VILLAGE (n=11) | **1.2** | 1.5 | **1/11** |
+| mobile (n=9) | 3.7 | 2.4 | 6/9 |
+
+### Progression des trois expériences
+
+```
+C0 (corrélation)        : mono-affinité ↔ village
+        ↓ intervention causale
+C2                      : mono-affinité forcée → EXTINCTION, pas village
+        ↓ analyse temporelle
+C3                      : monoculture et village CO-ÉMERGENT (goulot commun)
+```
+Chaque étape élimine une interprétation plus naïve.
+
+### Réfutation 1 — la monoculture n'est pas SUFFISANTE pour un village
+Les populations **mobiles monoculturisent aussi** (t_mono mobile = 2.4, précoce),
+et 6/9 d'entre elles monoculturisent **avant** de se fixer (sans jamais devenir
+villages). Donc la monoculture ne cause pas le village.
+
+### Réfutation 2 — le village n'engendre pas ENSUITE la monoculture
+Chez les villages, `t_settle ≈ t_mono` (1.2 vs 1.5) et la monoculture ne suit la
+sédentarisation que dans **1/11** cas. Aucun délai séquentiel : les deux se
+verrouillent **en même temps**, très tôt. L'hypothèse `village → mono` (§2-§5
+intermédiaire) est donc **également écartée** dans sa forme séquentielle.
+
+### Modèle retenu — cause commune (goulot démographique)
+
+```
+goulot démographique (le « creux » — prédicteur C0 régression : −0.48)
+        ↓
+sélection d'une affinité dominante  →  monoculture précoce  (conséquence FRÉQUENTE)
+        +
+stabilisation spatiale éventuelle   →  village              (conséquence CONDITIONNELLE)
+```
+
+> **Tous les villages sont monoculturels, mais toutes les monocultures ne
+> deviennent pas des villages.** Ce qui distingue village de mobile, c'est le
+> **settling** (t_settle 1.2 vs 3.7), pas la monoculture — et le settling n'est
+> pas causé par la monoculture (les mobiles monoculturisent sans se fixer).
+
+### Résultat le plus robuste de la série
+
+Ce n'est plus la mobilité (driver toujours ouvert, conséquence secondaire). C'est
+l'**effet protecteur causal de la diversité d'affinité sur la survie** :
+
+```
+diversité d'affinité ↓  →  risque d'effondrement ↑
+k=1 → 60 % extinction   k=2 → 30 %   k=4 → 10 %
+```
+**Le seul effet causal monotone observé dans toute cette série d'expériences.**
+
+### Conclusion
+
+> Le lien `mono-affinité ↔ village` observé dans les données naturelles (C0) ne
+> reflète **ni** une causalité `mono → village` **ni** `village → mono`. Les deux
+> phénomènes **co-émergent** suite à un goulot démographique commun. Le seul effet
+> causal robuste identifié est l'**effet protecteur de la diversité d'affinité sur
+> la survie** de la population.
