@@ -2,8 +2,10 @@
 
 **Date** : 2026-06-01
 **Phase** : V8-C3 — test causal de la chaîne corrélationnelle C0.
-**Status** : **Inversion causale** — une corrélation naturelle (C0) ne survit pas
-à l'intervention. Réfutation propre + finding causal positif inattendu.
+**Status** : **Inversion causale + mécanisme établi** — une corrélation naturelle
+(C0) ne survit pas à l'intervention ; l'effet causal positif (diversité → survie)
+est mécaniquement expliqué (§8 : tampon par réservoirs asynchrones / effet
+portefeuille).
 **Protocole** : `n_initial_affinities ∈ {1, 2, 4}`, design **apparié** 10 seeds,
 régime `coordination_collective`, baseline, 16k ticks, CUDA. Seule la diversité
 d'affinité initiale des fondateurs varie (manip chirurgicale, biome_map identique
@@ -175,3 +177,78 @@ k=1 → 60 % extinction   k=2 → 30 %   k=4 → 10 %
 > phénomènes **co-émergent** suite à un goulot démographique commun. Le seul effet
 > causal robuste identifié est l'**effet protecteur de la diversité d'affinité sur
 > la survie** de la population.
+
+---
+
+## 8. MÉCANISME de l'effet protecteur — tampon par réservoirs asynchrones (2026-06-01)
+
+C2 établit *que* la diversité protège (dose-réponse). Cette section établit
+*comment*. Re-capture trajectoires fines k=1 vs k=4 (`record_events_v8
+--n-initial-affinities`, 8 seeds chacun, 4000 ticks, record_every 5) à travers le
+goulot. Outil : `scripts/analyze_c2_mechanism.py`.
+
+### 8.1 Résultat
+
+| | extinction | min_alive (creux) | affinités @creux | biomes @creux | crash_async |
+|---|---|---|---|---|---|
+| k=1 (n=8) | 0/8* | **3.2** (jusqu'à 1) | 1.0 | 1.2 | **0** |
+| k=4 (n=8) | 0/8* | **13.6** | 3.0 | 3.1 | **395** |
+
+\* 0 extinction sur 4000 ticks (tirages CUDA) — on mesure la **profondeur du
+creux** (cause proximale de l'extinction), pas l'extinction directe. Le gradient
+d'extinction vient du batch C2 16k (60 %/30 %/10 %).
+
+`crash_async` = écart-type des ticks où chaque affinité atteint son **minimum** de
+population. k=1 = 0 (trivial : 1 seul type). **k=4 = 395, et chaque run ≥ 94** :
+les réservoirs touchent leur plancher à des moments **nettement différents**.
+
+### 8.2 Trois hypothèses → verdict
+
+- **H1 (diversification spatiale pure)** : ÉCARTÉ. L'analyse gratuite montrait déjà
+  que le nombre de biomes occupés ne prédit pas la profondeur du creux (−0.22).
+  Ce n'est pas l'**étendue** spatiale qui protège.
+- **H3 (sauvetage démographique par réservoirs asynchrones)** : **CONFIRMÉ**.
+- H2 (diversité comportementale) : non isolé ici ; possiblement la cause des
+  réponses asynchrones (à creuser via OBS V3).
+
+### 8.3 Le mécanisme — effet portefeuille / assurance écologique
+
+> La diversité protège non pas en **couvrant plus d'espace**, mais en maintenant
+> **plusieurs réservoirs (affinité×biome) dont les fluctuations démographiques sont
+> DÉSYNCHRONISÉES**. Quand un réservoir s'effondre, un autre tient ou rebondit →
+> l'agrégat ne touche jamais le plancher. k=1 n'a **qu'un** réservoir → tout
+> s'effondre en bloc → survie au fil du rasoir (min_alive jusqu'à 1).
+
+Illustration (seed4 k=4, population par affinité) :
+```
+        aff0  aff1  aff2  aff3   TOT
+t200      3     8     7    10    28
+t600      0     5     7     6    18   ← creux total PEU profond
+t1000     0     5    17     8    30
+t2000     0     4    50     6    60
+```
+aff0 meurt tôt (un réservoir perdu) ; aff2 touche son creux à t400 puis **rebondit**
+(5→53) et porte la population ; aff1/aff3 tiennent. L'agrégat (TOT) est **bien plus
+stable que n'importe quel réservoir isolé** — signature exacte de l'**effet
+portefeuille** (hypothèse d'assurance de la biodiversité, Yachi & Loreau 1999) :
+des sous-populations à réponses décorrélées stabilisent la fonction agrégée.
+
+### 8.4 Cohérence avec le programme
+
+- Raccorde **C2** (diversité → survie, le *que*) à son *comment* (tampon asynchrone).
+- Compatible avec **C3** (monoculture finale) : un réservoir l'emporte **après** le
+  goulot (aff2 ici), mais la diversité était **indispensable pendant** le goulot
+  pour le franchir. La monoculture est l'état final ; la diversité est la condition
+  de **passage**.
+- Renforce le rôle central du **goulot démographique** comme variable maîtresse du
+  système (survie, monoculture, village — et maintenant le mécanisme de survie).
+
+### 8.5 Limites
+
+- 8 seeds/condition, 4000 ticks (0 extinction observée — profondeur de creux comme
+  proxy ; gradient d'extinction du batch 16k).
+- `crash_async` structurellement 0 pour k=1 (1 affinité) — le signal réel combine
+  profondeur (3.2 vs 13.6) + nb de réservoirs (1.2 vs 3.1 biomes) + asynchronie
+  visible en k=4. La désynchronisation n'est pas un artefact (chaque run k=4 ≥ 94,
+  trajectoires par affinité déphasées confirmées visuellement).
+- H2 (origine comportementale des réponses asynchrones) non isolée → OBS V3.
