@@ -253,26 +253,70 @@ le test causal reste à faire (§7).
 mécanique déjà codée dans la config (in-affinity ×1.3), sans répondre au « qui
 village vs mobile » (= l'homogénéité, pas l'alignement).
 
-## 7. Suite — test CAUSAL (C2 / P5-coord)
+## 7. Driver de la mobilité — bornage (résultat négatif de qualité, n=20, 2026-06-01)
 
-C0 a résolu le driver au niveau **corrélationnel** (homogénéité d'affinité →
-village). Le vrai prochain pas est **causal**, pas un recorder v2 (abandonné) :
+> **Mise à jour majeure du statut de C0.** Le candidat C0 (homogénéité d'affinité)
+> a été testé causalement (**C2**, finding `2026-06-01-...-c2-affinity-diversity-causal.md`)
+> puis temporellement (**C3**, §7 du même finding) : il est **disqualifié comme
+> cause de la mobilité**. La monoculture et le village co-émergent d'un goulot
+> démographique commun ; le seul effet causal robuste est *diversité → survie*.
+> Le driver de la mobilité (village vs mobile **à survie égale**) restait ouvert.
+> Cette section **borne ce qu'on peut en expliquer** avec les données actuelles.
 
-**C2 / P5-coord — manipulation directe de l'homogénéité d'affinité** :
+Chasse au driver sur les 20 clips (events.jsonl + biome_map régénérable, **0 GPU**),
+corrélations et corrélations partielles avec `mobility_score`.
+
+### 7.1 Ce qui est expliqué (positif)
+
 ```
-condition A : forcer MONO-affinité (toutes lignées même affinité)
-condition B : forcer MULTI-affinité (diversité maximale forcée)
-→ mesurer mobility_score (officiel, tiers) dans chaque condition, multi-seed
+goulot démographique (creux = min_alive)  →  tendance à la sédentarisation
 ```
-Prédiction : A produit des villages (mobility_score ↑), B produit de la mobilité
-(score ↓). Si confirmé → l'homogénéité d'affinité **cause** la sédentarité
-(au-delà de la corrélation). C'est le P5 d'origine (diversité de lignées) **affûté**
-par C0 vers la bonne variable (affinité, pas lignée brute).
+- `corr(creux, mobility) = −0.48` (creux profond → village), **R² ≈ 0.23**.
 
-Sous-pistes :
-- Officialiser `mobility_score` dans `metrics.json` (déjà dans discoveries).
-- C1 food (`food_density_by_biome`) : seulement si le test causal est ambigu.
-- À terme : régime à **ressource non-stationnaire** pour *induire* la migration.
+> Le goulot démographique est le **meilleur prédicteur observé** de la mobilité,
+> mais il n'explique qu'**environ un quart de la variance**. C'est la cause commune
+> récurrente du programme (déjà derrière survie, monoculture, formation de village).
+
+### 7.2 Ce qui est réfuté (testé et éliminé)
+
+Aucun n'ajoute de pouvoir explicatif au-delà du creux :
+
+| Variable | corr brute | verdict |
+|---|---|---|
+| diversité survivante (lignées/affinités post-creux) | −0.42 / −0.37 | **proxy collinéaire du creux** (partielle \| creux → −0.12 ; R²+0.01) |
+| timing du creux | −0.08 | nul |
+| saison au creux | −0.08 | nul |
+| timing de monoculture (t_mono) | −0.06 | nul |
+| vitesse de reconstruction post-creux | +0.26 | faible, non robuste |
+| taille du biome final occupé | −0.04 | nul |
+| concentration dans 1 biome (final) | +0.11 | nul |
+
+> **Aucun déterminant écologique simple extrait des trajectoires (positions,
+> affinité, lignée, vocalises, spots, biome_map) n'explique la mobilité au-delà du
+> goulot.** Exceptions franches au creux : seed14 (creux profond MAIS mobile),
+> seed23 (creux faible MAIS village).
+
+### 7.3 Ce qui reste ouvert (3 hypothèses → 3 générations d'outils)
+
+| Hypothèse | Contenu | Besoin instrumental |
+|---|---|---|
+| **H1 — Écologie cachée** | food, déplétion locale, gradients non capturés dans events.jsonl | **Recorder V2** (food/biome par tick) |
+| **H2 — Politique interne** | stratégie nomade vs sédentaire *apprise* par les lignées survivantes, invisible dans la trajectoire | **OBS Viewer 3** (activations / Q-values / mémoire) |
+| **H3 — Contingence historique** | les ~77 % résiduels sont intrinsèquement stochastiques (Gould — thème central du programme) | **Davantage de réplications** |
+
+### 7.4 Conclusion
+
+> À l'état actuel des données, la mobilité apparaît comme un phénomène **faiblement
+> contraint** : un goulot démographique influence la probabilité de sédentarisation,
+> mais la majeure partie de la variance demeure inexpliquée. Déterminer si cette
+> variance résulte d'une **écologie non observée** (H1), d'**états internes des
+> politiques** (H2), ou d'une **contingence historique irréductible** (H3) constitue
+> la prochaine frontière expérimentale du programme.
+
+Cohérence avec le reste du programme : C0/C2/C3 ont montré que les corrélations
+simples cachent souvent une cause commune (le goulot) ; P2 a réfuté l'intuition
+« coût → étouffement du signal » ; la mobilité montre maintenant qu'une partie du
+système pourrait être **réellement contingente**.
 
 ## 8. Reproduire
 
