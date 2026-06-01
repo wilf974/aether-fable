@@ -260,7 +260,8 @@ La théorie unifiée fait **5 prédictions falsifiables** :
 | P3 | À vcost < 0.04, aucun seed ne devrait montrer Δcl < −3 même chez very good | Confirmer via runs |
 | P4 | Le seuil critique vcost ≈ 0.045 devrait être **invariant** à d'autres paramètres (max_pop, bonus_energy) | Tester à max_pop=80, bonus=70 |
 | ~~P5~~ | ~~La distribution bimodale convention/coordination devrait disparaître si on augmente diversité de lignées~~ **PRÉMISSE RÉFUTÉE (2026-05-30)** : pas de bimodalité (convention saine 0/50). Voir `convention-not-an-attractor.md` | — |
-| **P5-coord** (affûté par C0, 2026-05-31) | L'**homogénéité d'affinité** *cause* la sédentarité spatiale : MONO-affinité forcée → villages (`mobility_score` ↑) ; MULTI-affinité forcée → mobilité (score ↓). C0 l'a montré corrélationnellement (aff_conc +0.47) ; reste le test causal. Voir `coordination-mobility-modes.md` §6quinquies+§7 | Forcer mono- vs multi-affinité, mesurer mobility_score multi-seed |
+| ~~P5-coord (affûté par C0)~~ | ~~L'homogénéité d'affinité *cause* la sédentarité : mono-affinité forcée → villages~~ **RÉFUTÉ CAUSALEMENT (C2, 2026-06-01)** : forcer mono-affinité → **extinction** (60 % à k=1 vs 10 % à k=4), PAS villages. La diversité d'affinité est causalement **protectrice** (effet dose-réponse monotone). La monoculture observée dans les villages naturels (C0) est vraisemblablement une *conséquence* du village, pas sa cause (`village → mono`, hypothèse parcimonieuse). Voir `2026-06-01-finding-v8c3-c2-affinity-diversity-causal.md` | ✅ Fait — `n_initial_affinities {1,2,4}`, apparié 10 seeds |
+| **Driver mobilité** | **TOUJOURS OUVERT** : le candidat C0 (homogénéité d'affinité) disqualifié comme cause. Reste à expliquer village vs mobile *à survie égale* | À investiguer |
 
 ---
 
