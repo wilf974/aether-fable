@@ -45,11 +45,13 @@ def record(
     record_every: int = 10,
     out_dir: str = "results/clip",
     device: str = "cuda",
+    n_initial_affinities: int = 4,
 ) -> str:
     env = build_env(
         seed, regime=regime, vocalize_energy_cost=vocalize_cost,
         max_pop_override=max_pop_override,
         bonus_energy_override=bonus_energy_override,
+        n_initial_affinities=n_initial_affinities,
     )
     # Mirror verbatim de overnight_v8b1.run (lignes 392-402)
     vision_radius = 2 if regime in (
@@ -71,6 +73,7 @@ def record(
         "listen_radius": env.cfg.vocabulary.listen_radius,
         "seed": seed, "regime": regime, "vcost": vocalize_cost,
         "total_ticks": ticks, "record_every": record_every,
+        "n_initial_affinities": n_initial_affinities,
         "schema_version": 1,
     }
     with open(os.path.join(out_dir, "meta.json"), "w", encoding="utf-8") as f:
@@ -130,12 +133,14 @@ def main() -> None:
     p.add_argument("--record-every", type=int, default=10)
     p.add_argument("--out-dir", default="results/clip")
     p.add_argument("--device", default="cuda")
+    p.add_argument("--n-initial-affinities", type=int, default=4)
     a = p.parse_args()
     record(
         a.seed, regime=a.regime, ticks=a.ticks, vocalize_cost=a.vocalize_cost,
         max_pop_override=a.max_pop_override,
         bonus_energy_override=a.bonus_energy_override,
         record_every=a.record_every, out_dir=a.out_dir, device=a.device,
+        n_initial_affinities=a.n_initial_affinities,
     )
 
 
