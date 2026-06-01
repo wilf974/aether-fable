@@ -318,6 +318,53 @@ simples cachent souvent une cause commune (le goulot) ; P2 a réfuté l'intuitio
 « coût → étouffement du signal » ; la mobilité montre maintenant qu'une partie du
 système pourrait être **réellement contingente**.
 
+### 7.5 Pilote H1 (food-tracking) — fortement affaibli (2026-06-01)
+
+Test ciblé de H1 *avant* tout batch : Recorder V2 (`record_events_v8`, schema v2,
+food par super-cellule 8×8) sur **3 seeds représentatifs** — seed25 (VILLAGE 0.90),
+seed46 (MIGRATION 0.15), seed40 (dérive 0.61), 16k ticks. Outil : analyse inline.
+
+| seed | food_at_pop early→late | food_at_pop vs moyenne | tracking pop~food |
+|---|---|---|---|
+| 25 VILLAGE | 0.8 → 0.3 (×0.40) | 0.5 vs 4.2 (**pauvre**) | **−0.67** |
+| 46 MIGRATION | 0.9 → 0.2 (×0.25) | 0.5 vs 3.1 (**pauvre**) | **−0.64** |
+| 40 dérive | 0.4 → 0.0 (×0.03) | 0.1 vs 5.0 (**pauvre**) | **−0.65** |
+
+**Résultat principal** : les populations occupent **systématiquement des zones
+appauvries** en food (0.5 vs moyenne 4.2) et **anti-corrèlent** avec la food
+(~−0.65) — dans les **trois modes identiquement**. La food est **en aval** de la
+population (les agents dévorent leur patch ; la food s'accumule là où il n'y a
+personne), pas son moteur. Ils ne « suivent pas la nourriture ».
+
+**Réfutation** : les profils food de VILLAGE (seed25) et MIGRATION (seed46) sont
+**quasi identiques** (0.5 de moyenne, anti-tracking −0.65) malgré des mobilités
+**opposées** (0.90 vs 0.15). Si le moteur était `food locale → décision rester/partir
+→ mobilité`, village et migration **devraient diverger** sur ces métriques. Ils ne
+divergent pas.
+
+**Conséquence — carte d'hypothèses raffinée** :
+
+```
+H1a food-tracking simple      ❌ fortement affaibli (ce pilote)
+H1b écologie fine             ? restent possibles : gradients saisonniers fins,
+                                compétition inter-biomes, pression de densité locale,
+                                structure des ressources non capturée par la moyenne
+H2  politique interne         ↑  (la différence est dans ce que les lignées ont APPRIS,
+                                pas dans ce qu'elles voient)
+H3  contingence historique    ↑
+```
+
+On n'élimine **pas toute l'écologie** — on élimine sa **version simple et intuitive**
+(« ils migrent parce qu'ils suivent la nourriture »). Le parallèle avec
+`mono-affinité → village` (driver apparent, réfuté par intervention, cause réelle
+ailleurs) est frappant : même écologie, même food, mêmes règles → **politiques
+survivantes différentes** est désormais l'explication de tête.
+
+> **Décision** : NE PAS lancer de batch food complet (le pilote a disqualifié H1a à
+> faible coût). La frontière se resserre sur **H2 (état latent des politiques →
+> OBS Viewer 3)** et **H3 (contingence → réplications)**. Recorder V2 conservé
+> (il a servi à réfuter H1a ; resservira pour H1b si jamais relancé).
+
 ## 8. Reproduire
 
 ```bash
