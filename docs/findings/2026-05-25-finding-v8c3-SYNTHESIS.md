@@ -8,6 +8,25 @@ multi-coût, ablation interventionnelle
 
 ---
 
+> ## ★ RÉSULTAT CAUSAL MAJEUR (2026-06-01) — hors périmètre langage
+>
+> La lignée d'expériences C0→C2→C3 sur la mobilité a produit le **résultat
+> causal le plus robuste de tout le programme V8-C3**, sur la **survie** (pas
+> le langage) :
+>
+> **La diversité d'affinité protège causalement la population** (extinction
+> 60 %/30 %/10 % pour k=1/2/4, dose-réponse monotone, design apparié), par
+> **effet d'assurance écologique / portfolio** : des réservoirs affinité×biome
+> aux fluctuations désynchronisées (crash_async 0 vs 395) amortissent le goulot
+> démographique. Un principe écologique connu (Yachi & Loreau 1999) **émerge**
+> sans être codé.
+>
+> → Finding dédié : `2026-06-01-finding-v8c3-diversity-as-ecological-insurance.md`.
+> Au passage, l'hypothèse `mono-affinité → village` est **réfutée** (mono/village
+> co-émergent du goulot ; voir P5-coord §6 ci-dessous).
+
+---
+
 > ## ⚠️ RECALIBRAGE phase D (2026-05-29)
 >
 > Les chiffres de Bifurcation 1 ci-dessous ont été établis sur **15
