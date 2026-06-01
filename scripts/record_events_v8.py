@@ -34,6 +34,28 @@ def _spot_adjacency(env, pos) -> int:
     return n
 
 
+def _food_by_region(env, bins: int = 8) -> list[int]:
+    """Food par super-cellule bins×bins (downsample du _food_mask).
+
+    Aligné sur la grille d'occupation (BINS=8). Liste plate row-major de
+    bins*bins entiers = nb de food cells par région. Teste H1 (écologie cachée :
+    la déplétion/repousse locale décide-t-elle rester vs errer ?).
+    """
+    fm = getattr(env, "_food_mask", None)  # noqa: SLF001
+    if fm is None:
+        return [0] * (bins * bins)
+    rows, cols = fm.shape
+    br = max(1, rows // bins)
+    bc = max(1, cols // bins)
+    grid = [0] * (bins * bins)
+    ys, xs = np.nonzero(fm)
+    for y, x in zip(ys.tolist(), xs.tolist()):
+        gr = min(bins - 1, y // br)
+        gc = min(bins - 1, x // bc)
+        grid[gr * bins + gc] += 1
+    return grid
+
+
 def record(
     seed: int,
     *,
@@ -74,7 +96,7 @@ def record(
         "seed": seed, "regime": regime, "vcost": vocalize_cost,
         "total_ticks": ticks, "record_every": record_every,
         "n_initial_affinities": n_initial_affinities,
-        "schema_version": 1,
+        "schema_version": 2,
     }
     with open(os.path.join(out_dir, "meta.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f)
@@ -112,10 +134,14 @@ def record(
                 {"r": pos[0], "c": pos[1], "n": _spot_adjacency(env, pos)}
                 for pos in getattr(env, "gather_spots", [])
             ]
+            # V2 — food par super-cellule 8x8 (downsample du _food_mask),
+            # aligné sur la grille d'occupation. Teste H1 (écologie cachée).
+            food_grid = _food_by_region(env)
             ev = {
                 "t": t, "season": int(env.season), "n_alive": env.n_alive,
                 "n_lin": len(policy.registry),
                 "agents": agents, "vocal": vocal, "spots": spots,
+                "food": food_grid,
             }
             out.write(json.dumps(ev) + "\n")
     print(f"WROTE {path}  ({out_dir}/meta.json)")

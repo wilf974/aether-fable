@@ -18,12 +18,13 @@ def test_recorder_produces_valid_contract(tmp_path):
     with open(os.path.join(out_dir, "meta.json"), encoding="utf-8") as f:
         meta = json.load(f)
     assert meta["total_ticks"] == 40 and meta["record_every"] == 10
-    assert meta["schema_version"] == 1
+    assert meta["schema_version"] == 2
     with open(os.path.join(out_dir, "events.jsonl"), encoding="utf-8") as f:
         lines = [json.loads(x) for x in f if x.strip()]
     assert len(lines) >= 1
     ev = lines[0]
-    assert {"t", "agents", "vocal", "spots", "n_alive"} <= set(ev.keys())
+    assert {"t", "agents", "vocal", "spots", "n_alive", "food"} <= set(ev.keys())
+    assert len(ev["food"]) == 64  # grille 8x8 food par région (schema v2)
     if ev["agents"]:
         a = ev["agents"][0]
         assert {"id", "lin", "r", "c", "e", "er", "age", "aff"} <= set(a.keys())
