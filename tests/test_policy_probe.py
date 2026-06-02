@@ -119,3 +119,33 @@ def test_policy_distance_orthogonal_is_one():
     a = np.array([[1.0, 0.0]])
     b = np.array([[0.0, 1.0]])
     assert abs(policy_distance(a, b) - 1.0) < 1e-9
+
+
+import json
+
+
+def _write_probe_json(path, seed, mobility, village, fp):
+    rec = {
+        "seed": seed, "mobility_score": mobility, "village_basin": village,
+        "action_labels": ACTION_LABELS, "probe_labels": PROBE_LABELS,
+        "fingerprint": fp,
+    }
+    path.write_text(json.dumps(rec), encoding="utf-8")
+
+
+def test_render_compare_distance_and_png(tmp_path):
+    sys.path.insert(0, "scripts")
+    from render_policy_compare import compare
+
+    n_p = len(PROBE_LABELS)
+    vil = [[1.0] * 9 for _ in range(n_p)]
+    mob = [[0.0, 5.0] + [0.0] * 7 for _ in range(n_p)]
+    for i in range(3):
+        _write_probe_json(tmp_path / f"v{i}.json", i, 0.95, True, vil)
+    for i in range(3):
+        _write_probe_json(tmp_path / f"m{i}.json", 10 + i, 0.20, False, mob)
+    out_png = str(tmp_path / "cmp.png")
+    res = compare([str(p) for p in tmp_path.glob("*.json")], out_png)
+    assert os.path.getsize(out_png) > 0
+    assert res["inter"] > res["intra"]
+    assert res["n_village"] == 3 and res["n_mobile"] == 3
