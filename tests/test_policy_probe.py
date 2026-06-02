@@ -83,3 +83,39 @@ def test_token_probes_identical_without_vocab():
     obs0 = build_probe_obs(env, "Token_heard_0")
     obs1 = build_probe_obs(env, "Token_heard_1")
     assert np.array_equal(obs0, obs1)  # sans vocab, heard-embeddings = zero
+
+
+from aetherlife.viz.policy_probe import fingerprint, policy_distance
+
+
+def _make_cpu_brain(obs_dim=505, n_actions=9):
+    from aetherlife.agents.lineage_brain import BrainConfig, LineageBrain
+    cfg = BrainConfig(enabled=True, device="cpu", vision_radius=4,
+                      hidden_dims=(64, 64))
+    return LineageBrain(root_id=0, obs_dim=obs_dim, n_actions=n_actions, cfg=cfg,
+                        seed=0)
+
+
+def test_fingerprint_shape():
+    env = make_probe_env(seed=1)
+    brain = _make_cpu_brain()
+    fp = fingerprint(brain, env)
+    assert fp.shape == (len(PROBE_LABELS), 9)
+    assert np.isfinite(fp).all()
+
+
+def test_policy_distance_identical_is_zero():
+    fp = np.array([[1.0, 2.0, 3.0], [0.0, 1.0, 0.0]])
+    assert policy_distance(fp, fp) == 0.0
+
+
+def test_policy_distance_symmetric():
+    a = np.array([[1.0, 0.0], [0.0, 1.0]])
+    b = np.array([[0.0, 1.0], [1.0, 0.0]])
+    assert policy_distance(a, b) == policy_distance(b, a)
+
+
+def test_policy_distance_orthogonal_is_one():
+    a = np.array([[1.0, 0.0]])
+    b = np.array([[0.0, 1.0]])
+    assert abs(policy_distance(a, b) - 1.0) < 1e-9

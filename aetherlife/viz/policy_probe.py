@@ -118,3 +118,28 @@ def build_probe_obs(env, label: str, *, listener_vocab=None) -> np.ndarray:
         env, agent, _VISION, listener_vocab=listener_vocab, embedding_dim=_EMB,
     )
     return obs.astype(np.float32)
+
+
+def fingerprint(brain, env) -> np.ndarray:
+    """Matrice (n_sondes × 9) des Q-values du brain sur la batterie de sondes."""
+    torch = brain._torch  # noqa: SLF001
+    rows = []
+    for label in PROBE_LABELS:
+        obs = build_probe_obs(env, label, listener_vocab=brain.vocabulary)
+        with torch.no_grad():
+            x = torch.from_numpy(obs).unsqueeze(0).to(brain.device)
+            q = brain.online(x).cpu().numpy().reshape(-1)
+        rows.append(q)
+    return np.array(rows, dtype=np.float32)
+
+
+def policy_distance(fp_a: np.ndarray, fp_b: np.ndarray) -> float:
+    """Distance cosine entre deux empreintes aplaties. 0=identique, 1=orthogonal."""
+    a = np.asarray(fp_a, dtype=np.float64).reshape(-1)
+    b = np.asarray(fp_b, dtype=np.float64).reshape(-1)
+    na, nb = np.linalg.norm(a), np.linalg.norm(b)
+    if na == 0 or nb == 0:
+        return 0.0
+    cos = float(np.dot(a, b) / (na * nb))
+    cos = max(-1.0, min(1.0, cos))
+    return 1.0 - cos
