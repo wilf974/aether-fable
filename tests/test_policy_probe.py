@@ -106,7 +106,7 @@ def test_fingerprint_shape():
 
 def test_policy_distance_identical_is_zero():
     fp = np.array([[1.0, 2.0, 3.0], [0.0, 1.0, 0.0]])
-    assert policy_distance(fp, fp) == 0.0
+    assert policy_distance(fp, fp) < 1e-9  # cosine de vecteurs identiques ~ 1
 
 
 def test_policy_distance_symmetric():
