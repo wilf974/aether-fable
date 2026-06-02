@@ -66,3 +66,20 @@ def test_low_vs_high_energy_differ():
     # energy_norm est le 1er des 3 scalaires, après les canaux spatiaux
     n_spatial = 6 * 81  # 6 canaux (coop actif)
     assert lo[n_spatial] < hi[n_spatial]
+
+
+def test_probe_obs_identical_across_seeds_after_biome_neutralized():
+    # Pour que policy_distance mesure la POLITIQUE et pas la geographie,
+    # une meme sonde doit produire une obs IDENTIQUE quel que soit le seed.
+    import numpy as np
+    o1 = build_probe_obs(make_probe_env(seed=1), "Alone")
+    o2 = build_probe_obs(make_probe_env(seed=7), "Alone")
+    assert np.array_equal(o1, o2), "biome non neutralise -> obs depend du seed"
+
+
+def test_token_probes_identical_without_vocab():
+    import numpy as np
+    env = make_probe_env(seed=1)
+    obs0 = build_probe_obs(env, "Token_heard_0")
+    obs1 = build_probe_obs(env, "Token_heard_1")
+    assert np.array_equal(obs0, obs1)  # sans vocab, heard-embeddings = zero

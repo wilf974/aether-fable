@@ -49,6 +49,8 @@ def _clean_center_agent(env) -> _AgentState:
     env._food_mask[:] = False  # noqa: SLF001
     env._tokens_this_tick = {}  # noqa: SLF001
     env._gather_spots = {}  # noqa: SLF001
+    env._biome_map[:] = 0  # noqa: SLF001 — biome uniforme (PLAIN) : standardise
+    # l'obs entre seeds -> policy_distance = pure difference de politique (pas geo)
     agent = _AgentState(
         agent_id=0, pos=(cr, cc), energy=env.cfg.max_energy * 0.5,
         alive=True, root_ancestor_id=0, birth_tick=0,
@@ -70,7 +72,12 @@ def _add_neighbor(env, dr: int, dc: int, agent_id: int = 1) -> _AgentState:
 
 
 def build_probe_obs(env, label: str, *, listener_vocab=None) -> np.ndarray:
-    """Construit l'observation d'une sonde via le vrai egocentric_obs."""
+    """Construit l'observation d'une sonde via le vrai egocentric_obs.
+
+    ATTENTION : Token_heard_0/1 produisent des obs IDENTIQUES si listener_vocab=None
+    (heard-embeddings pades a zero). Pour les distinguer, passer listener_vocab=brain.vocabulary
+    (fait automatiquement par fingerprint()).
+    """
     agent = _clean_center_agent(env)
     ar, ac = agent.pos
     if label == "Food_N":
