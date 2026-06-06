@@ -6,9 +6,15 @@ Touches : ESPACE pause · +/- jours · H Historien · E export · ↑/↓ vitess
 """
 from __future__ import annotations
 
-import argparse
 import os
-import sys
+
+# IMPORTANT : forcer un VRAI display AVANT d'importer les modules viz (qui font
+# SDL_VIDEODRIVER=dummy par défaut pour les tests headless). setdefault =
+# respecte un dummy déjà posé par les tests, sinon ouvre une vraie fenêtre.
+os.environ.setdefault("SDL_VIDEODRIVER", "windows")
+
+import argparse  # noqa: E402
+import sys  # noqa: E402
 
 sys.path.insert(
     0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
