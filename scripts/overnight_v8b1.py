@@ -63,6 +63,7 @@ def build_env(
     max_pop_override: int | None = None,
     bonus_energy_override: float | None = None,
     n_initial_affinities: int = 4,
+    n_seed_points: int = 8,
 ) -> SeasonalMultiAgentFoodGrid:
     """Config selon regime :
 
@@ -197,7 +198,7 @@ def build_env(
             respawn_thr = 2
             start_e = 200.0
         biome_cfg = BiomeConfig(
-            enabled=True, n_seed_points=8, balanced_seeds=True,
+            enabled=True, n_seed_points=n_seed_points, balanced_seeds=True,
             affinity_enabled=True,
             in_affinity_metabolism=0.7, in_affinity_food_value=1.3,
             out_affinity_metabolism=1.5, out_affinity_food_value=0.7,
@@ -387,6 +388,7 @@ def run_overnight(
     max_pop_override: int | None = None,
     bonus_energy_override: float | None = None,
     n_initial_affinities: int = 4,
+    n_seed_points: int = 8,
 ) -> dict:
     env = build_env(
         seed, regime=regime,
@@ -395,6 +397,7 @@ def run_overnight(
         max_pop_override=max_pop_override,
         bonus_energy_override=bonus_energy_override,
         n_initial_affinities=n_initial_affinities,
+        n_seed_points=n_seed_points,
     )
     print(f"REGIME={regime}"
           + (f"  ABLATION@{disable_vocalize_after_tick}"
@@ -675,6 +678,7 @@ def run_overnight(
             "n_ticks": n_ticks, "seed": seed, "device": device,
             "obs_dim": policy.obs_dim, "vision_radius": cfg.vision_radius,
             "n_initial_affinities": n_initial_affinities,
+            "n_seed_points": n_seed_points,
         },
         "runtime": {
             "duration_s": dt, "ticks_per_sec": n_ticks / dt,
@@ -928,6 +932,11 @@ def main() -> None:
         help="V8-C3 C2 — Nb d'affinités assignées aux fondateurs (1=mono, "
              "4=multi/défaut). Test causal diversité d'affinité.",
     )
+    p.add_argument(
+        "--n-seed-points", type=int, default=8,
+        help="V8-C3 topology — Nb de seeds Voronoi (granularite spatiale). "
+             "4=grosses regions, 8=defaut, 16=patchwork.",
+    )
     args = p.parse_args()
     run_overnight(
         n_ticks=args.ticks, seed=args.seed, device=args.device,
@@ -938,6 +947,7 @@ def main() -> None:
         max_pop_override=args.max_pop_override,
         bonus_energy_override=args.bonus_energy_override,
         n_initial_affinities=args.n_initial_affinities,
+        n_seed_points=args.n_seed_points,
     )
 
 
