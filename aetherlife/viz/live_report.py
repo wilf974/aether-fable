@@ -14,7 +14,7 @@ import numpy as np
 from aetherlife.historian.spatial_mobility import build_spatial_mobility_block
 
 
-def _language_metrics(env, policy) -> dict[str, Any]:
+def _language_metrics(env, policy, n_ticks: int) -> dict[str, Any]:
     """Reproduit overnight_v8b1 §language_metrics depuis le registry vocab."""
     if not env.cfg.vocabulary.enabled:
         return {}
@@ -44,6 +44,10 @@ def _language_metrics(env, policy) -> dict[str, Any]:
     return {
         "n_brains_with_vocab": len(brains),
         "total_vocalize_count": total,
+        "tokens_per_1000_ticks": 1000 * total / max(n_ticks, 1),
+        "vocalize_energy_cost_total": (
+            total * env.cfg.vocabulary.vocalize_energy_cost
+        ),
         "entropy_ratio": mean_entropy / max(float(np.log(n_tokens)), 1e-9),
         "mean_usage_entropy": mean_entropy,
         "mean_token_lineage_concentration": mean_conc,
@@ -53,7 +57,8 @@ def _language_metrics(env, policy) -> dict[str, Any]:
 
 
 def build_live_report(env, policy, occ_start, occ_end, *,
-                      windows: tuple, n_ticks: int) -> dict[str, Any]:
+                      windows: tuple, n_ticks: int,
+                      seed: int | None = None) -> dict[str, Any]:
     """Report dict consommable par Historian/DiscoveriesDetector (live, MVP)."""
     alive = [a for a in env._agents if a.alive]  # noqa: SLF001
     lin_counts = Counter(a.root_ancestor_id for a in alive)
@@ -66,7 +71,7 @@ def build_live_report(env, policy, occ_start, occ_end, *,
     n_founders = env.cfg.n_agents
     swin, ewin = windows
     return {
-        "config": {"seed": None, "n_ticks": n_ticks, "device": "live",
+        "config": {"seed": seed, "n_ticks": n_ticks, "device": "live",
                    "vision_radius": None},
         "final_state": {
             "n_alive": n_alive,
@@ -81,7 +86,7 @@ def build_live_report(env, policy, occ_start, occ_end, *,
             "n_lineages_final": len(policy.registry),
             "dominant_lineage_pct": (top[0]["pct"] if top else 0.0),
         },
-        "language_metrics_v8b2": _language_metrics(env, policy),
+        "language_metrics_v8b2": _language_metrics(env, policy, n_ticks),
         "cooperative_v8c3": {
             "enabled": bool(env.cfg.cooperative.enabled),
             "gather_successes_total": int(env.gather_successes_total),

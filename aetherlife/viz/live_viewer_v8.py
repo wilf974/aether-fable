@@ -81,9 +81,9 @@ def _draw_historian_overlay(screen, lines):
     screen.blit(panel, (0, 0))
 
 
-def _historian_lines(env, policy, occ_s, occ_e, windows, n_ticks):
+def _historian_lines(env, policy, occ_s, occ_e, windows, n_ticks, seed=None):
     rep = build_live_report(env, policy, occ_s, occ_e,
-                            windows=windows, n_ticks=n_ticks)
+                            windows=windows, n_ticks=n_ticks, seed=seed)
     h = Historian.from_report(rep, run_id="live")
     sm = rep["spatial_mobility_v8c3"]
     lines = [
@@ -156,12 +156,14 @@ def run_live(*, seed: int = 1, regime: str = "coordination_collective",
                 elif event.key == pygame.K_h:
                     if overlay is None:
                         overlay = _historian_lines(env, policy, occ_s, occ_e,
-                                                   (swin, ewin), max(t, 1))
+                                                   (swin, ewin), max(t, 1),
+                                                   seed=seed)
                     else:
                         overlay = None
                 elif event.key == pygame.K_e:
                     lines, h = _historian_lines(env, policy, occ_s, occ_e,
-                                                (swin, ewin), max(t, 1))
+                                                (swin, ewin), max(t, 1),
+                                                seed=seed)
                     h.write_all("results/gui_run/report")
                     overlay = (lines + ["", ">>> exporte: results/gui_run/report"],
                                h)
