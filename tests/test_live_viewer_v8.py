@@ -45,3 +45,17 @@ def test_run_live_smoke_bounded():
     # boucle bornée (max_frames) headless, ne doit pas crasher
     run_live(seed=1, regime="coordination_collective", device="cpu",
              days=1, ticks_per_day=20, cell_px=6, max_frames=15)
+
+
+def test_launch_gui_v8_smoke():
+    import subprocess
+    import sys
+    r = subprocess.run(
+        [sys.executable, "scripts/launch_gui_v8.py", "--seed", "1",
+         "--device", "cpu", "--days", "1", "--ticks-per-day", "20",
+         "--max-frames", "12"],
+        capture_output=True, text=True, timeout=600,
+        env={**os.environ, "SDL_VIDEODRIVER": "dummy",
+             "PYTHONIOENCODING": "utf-8"},
+    )
+    assert r.returncode == 0, r.stderr
