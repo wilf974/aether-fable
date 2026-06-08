@@ -162,16 +162,29 @@ is contingent.
   joint depth + reservoir-count + measured asynchrony in k=4.
 - The behavioural origin of reservoir asynchrony (do lineages explore differently?)
   is not isolated and would require policy/representation introspection.
-- One regime (`coordination_collective`, 4 biomes); generality across topologies is
-  untested.
+- One regime (`coordination_collective`); generality across **spatial topologies** is
+  established (§3.4, n_seed_points ∈ {4,8,16}), but other regimes / resource
+  distributions remain untested.
+- Topology test: 8 seeds/cell (direction robust, magnitudes noisy); the spatial-vs-
+  functional distinction relies on the survival outcome (the synchrony of same-type
+  patches is not measured directly).
 
 ## 6. Conclusion
 
 Affinity diversity causally buffers population survival in AetherLife, monotonically
 and mechanistically, through an emergent portfolio effect of asynchronous
-affinity×biome reservoirs. The result instantiates a known ecological insurance
-principle without encoding it, and stands as the program's most robust causal
-finding.
+affinity×biome reservoirs. The effect generalises across spatial topologies, and a
+spatial-multiplicity alternative is explicitly tested and rejected: splitting one
+type across patches does not buffer, because same-type sub-populations respond in a
+correlated way. The candidate emergent law, in its most general form:
+
+> **Population survival rises when the system holds multiple sub-populations whose
+> demographic fluctuations are *desynchronised* — and that desynchronisation comes
+> from functional diversity (distinct ecological responses), not from spatial
+> fragmentation (correlated copies of one type).**
+
+The result instantiates a known ecological insurance principle without encoding it,
+and stands as the program's most robust causal finding.
 
 ## References
 

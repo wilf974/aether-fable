@@ -91,6 +91,18 @@ baseline C2 : k=1 @ n=8 = 62 % ≈ les 60 % de C2.)
 | Un réservoir = une zone spatiale | ❌ |
 | **Un réservoir = une réponse écologique distincte** | ✅ (contribution conceptuelle la plus durable) |
 
+### Loi émergente candidate (formulation générale)
+
+> **La survie d'une population augmente quand le système contient plusieurs
+> sous-populations dont les fluctuations démographiques sont DÉSYNCHRONISÉES.**
+> Cette désynchronisation provient de la diversité **fonctionnelle** (réponses
+> écologiques distinctes), pas de la simple fragmentation **spatiale** (copies
+> d'un même type, aux réponses corrélées).
+
+Cette formulation abstrait « affinité » vers « sous-population à réponse décorrélée » :
+c'est l'énoncé le plus général que les données soutiennent, et la version à porter en
+publication.
+
 ## 5. Observation secondaire — la fragmentation est un stresseur
 
 Distincte du résultat principal (et plus locale au monde AetherLife) : la
