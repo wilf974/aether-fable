@@ -24,6 +24,17 @@ multi-coût, ablation interventionnelle
 > → Finding dédié : `2026-06-01-finding-v8c3-diversity-as-ecological-insurance.md`.
 > Au passage, l'hypothèse `mono-affinité → village` est **réfutée** (mono/village
 > co-émergent du goulot ; voir P5-coord §6 ci-dessous).
+>
+> **★ GÉNÉRALISATION (2026-06-08)** : l'effet portefeuille **réplique à travers les
+> topologies spatiales** (`n_seed_points ∈ {4,8,16}` × `k ∈ {1,4}`) — k=4 < k=1
+> extinction partout → ce n'est PAS un artefact de Voronoi-8. Mais le mécanisme
+> n'est **pas la multiplicité de patches** : c'est la **diversité fonctionnelle**
+> produisant des fluctuations démographiques **décorrélées**. Fragmenter l'espace
+> d'un seul type (k=1, n=16) ne sauve pas la monoculture (extinction 38→62 %, ne
+> chute jamais) — les copies spatiales d'un même type restent **corrélées** et ne
+> tamponnent pas. **Un réservoir = une réponse écologique distincte, pas une zone
+> spatiale.** Mécanisme alternatif (spatial) testé et rejeté → de *finding* à *loi
+> émergente candidate*. Finding : `2026-06-08-finding-v8c3-portfolio-functional-not-spatial.md`.
 
 ---
 

@@ -109,6 +109,34 @@ there is no fitness term rewarding diversity, no explicit risk-spreading rule. I
 emerges from the interaction of Voronoi biomes, inherited affinities, and
 demographic selection.
 
+### 3.4 Generality: functional, not spatial diversity (topology experiment)
+
+To test whether the effect is an artifact of the specific 8-seed Voronoi geography —
+and whether the buffering reservoir is *spatial* (multiple patches) or *functional*
+(multiple types) — we varied the spatial granularity of the partition,
+`n_seed_points ∈ {4, 8, 16}`, crossed with `k ∈ {1, 4}` (8 paired seeds/cell). At
+`n_seed_points=16`, a mono-affinity population (k=1) has its single affinity scattered
+across ~4 disjoint patches: if reservoirs were merely spatial, this should rescue it.
+
+| extinction | n=4 | n=8 | n=16 |
+|---|---|---|---|
+| k=1 (mono) | 3/8 | 5/8 | 5/8 |
+| k=4 (multi) | 1/8 | 1/8 | 3/8 |
+
+Two results. (i) **The effect generalises**: k=4 has lower extinction than k=1 at
+every topology (gaps +25/+50/+25 pp) — not a Voronoi-8 artifact. (ii) **The mechanism
+is functional, not spatial**: fragmenting space does NOT rescue the monoculture (k=1
+extinction 38→62 %, never falls; k=1@n16 = 62 % vs k=4@n4 = 12 %, no convergence).
+Spatial copies of the **same** affinity respond identically to the environment, so
+their demographic fluctuations remain **correlated** (synchronous) and provide no
+portfolio buffering. Only **distinct types** yield the decorrelated responses the
+effect requires. This explicitly tests and rejects the spatial-multiplicity
+alternative, sharpening the mechanism: *a reservoir is a distinct ecological response,
+not a spatial location.* (Secondary observation: fine fragmentation is itself a
+stressor — even k=4 worsens at n=16, extinction 12→38 %, gather 102→43 — raising the
+coordination cost; this confounds the n=16 cell but not the main result, since spatial
+multiplicity would *lower* k=1 extinction, whereas it rises.)
+
 ## 4. Discussion
 
 This is a clean case of **verifiable emergence**: a regularity that survives a
