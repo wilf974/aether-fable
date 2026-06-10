@@ -39,6 +39,7 @@ import numpy as np
 
 from aetherlife.agents.lineage_agent import LineageAgent, egocentric_obs
 from aetherlife.agents.lineage_brain import BrainConfig, LineageBrain
+from aetherlife.telemetry import MetricsLogger
 from aetherlife.world.biomes import BiomeConfig
 from aetherlife.world.cache import CacheConfig
 from aetherlife.world.competition import CompetitionConfig
@@ -447,6 +448,22 @@ def run_overnight(
     t0 = time.time()
     os.makedirs(out_dir, exist_ok=True)
 
+    # V2.5 — telemetrie structuree : metrics.jsonl + run_config.json
+    # (observation pure, aucun impact dynamique/RNG)
+    mlog = MetricsLogger(
+        out_dir,
+        run_id=f"{regime}_seed{seed}",
+        config={
+            "n_ticks": n_ticks, "seed": seed, "device": device,
+            "regime": regime, "n_initial_affinities": n_initial_affinities,
+            "n_seed_points": n_seed_points,
+            "vocalize_energy_cost": vocalize_energy_cost,
+            "disable_vocalize_after_tick": disable_vocalize_after_tick,
+            "brain": {"vision_radius": cfg.vision_radius, "lr": cfg.lr,
+                       "hidden_dims": list(cfg.hidden_dims)},
+        },
+    )
+
     # V8-C3 chantier A — rétention occupation (observation-only : aucun impact
     # sur la dynamique/RNG). Fenêtres officielles = 1er tiers vs 3e tiers
     # (exclut le transitoire de fondation — cf. window_bounds).
@@ -582,6 +599,14 @@ def run_overnight(
                 f"speed={speed:.0f} t/s ETA={(n_ticks - t) / speed / 60:.1f}min"
             )
             alive_curve.append((t, env.n_alive))
+            mlog.log(
+                t, alive=env.n_alive, lineages=len(policy.registry),
+                births=env.n_births_total,
+                steps_total=policy.registry.total_global_steps(),
+                mean_loss=None if np.isnan(mean_loss) else float(mean_loss),
+                mean_epsilon=float(metrics.get("mean_epsilon", 0.0)),
+                ticks_per_s=round(speed, 1),
+            )
             lineages_curve.append((t, len(policy.registry)))
             if not np.isnan(mean_loss):
                 loss_curve.append((t, mean_loss))
@@ -593,8 +618,14 @@ def run_overnight(
         if t % divergence_every == 0:
             div = measure_policy_divergence(policy, n_samples=64)
             divergence_curve.append((t, div))
+            mlog.log(t, policy_divergence=float(div))
 
     dt = time.time() - t0
+    mlog.summary(
+        final_alive=env.n_alive, births_total=env.n_births_total,
+        deaths_total=len(deaths_record), ticks_done=t,
+    )
+    mlog.close()
 
     # Final analysis
     lifespan_quartiles = lifespan_by_birth_quartile(deaths_record)
