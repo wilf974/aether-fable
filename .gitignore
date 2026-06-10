@@ -35,3 +35,7 @@ results/
 
 # V8-B2 reports (regenerated par Historian)
 reports/
+.claude-flow/
+
+# Clips video / rendus (regeneres par render_v8 & co)
+clips/
