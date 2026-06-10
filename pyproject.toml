@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "aetherlife"
-version = "0.1.0-alpha"
+version = "0.2.0-alpha"
 description = "AetherLife — plateforme RL pour l'étude expérimentale des comportements émergents dans des écosystèmes artificiels procéduraux."
 readme = "README.md"
 requires-python = ">=3.11"
