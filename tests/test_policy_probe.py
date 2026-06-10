@@ -6,6 +6,7 @@ sys.path.insert(
 )
 
 import numpy as np
+import pytest
 
 from aetherlife.viz.policy_probe import (
     ACTION_LABELS, PROBE_LABELS, build_probe_obs, make_probe_env,
@@ -97,6 +98,7 @@ def _make_cpu_brain(obs_dim=505, n_actions=9):
 
 
 def test_fingerprint_shape():
+    pytest.importorskip("torch", reason="suite complete : requiert torch")
     env = make_probe_env(seed=1)
     brain = _make_cpu_brain()
     fp = fingerprint(brain, env)
@@ -134,6 +136,8 @@ def _write_probe_json(path, seed, mobility, village, fp):
 
 
 def test_render_compare_distance_and_png(tmp_path):
+    pytest.importorskip("torch", reason="suite complete : requiert torch")
+    pytest.importorskip("pygame", reason="suite complete : requiert pygame")
     sys.path.insert(0, "scripts")
     from render_policy_compare import compare
 

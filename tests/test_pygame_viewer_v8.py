@@ -1,6 +1,10 @@
 import os
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
+import pytest
+
+pytest.importorskip("pygame", reason="suite complete : requiert pygame-ce")
+
 from aetherlife.viz.pygame_viewer_v8 import _draw_frame
 from aetherlife.viz.v8_replay import lineage_color, token_color
 

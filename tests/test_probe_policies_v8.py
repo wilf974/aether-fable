@@ -1,8 +1,10 @@
 """Smoke capture OBS V3.0 — probe_policies_v8 produit un JSON valide."""
 import json
+import pytest
 
 
 def test_probe_capture_produces_valid_json(tmp_path):
+    pytest.importorskip("torch", reason="suite complete : requiert torch")
     import os
     import subprocess
     import sys

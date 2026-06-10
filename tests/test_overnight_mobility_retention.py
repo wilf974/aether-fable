@@ -5,6 +5,7 @@ sans rien changer d'autre. Run CPU très court.
 """
 import os
 import sys
+import pytest
 
 sys.path.insert(
     0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts")
@@ -12,6 +13,7 @@ sys.path.insert(
 
 
 def test_run_overnight_emits_spatial_mobility_block(tmp_path):
+    pytest.importorskip("torch", reason="suite complete : requiert torch")
     from overnight_v8b1 import run_overnight
 
     report = run_overnight(

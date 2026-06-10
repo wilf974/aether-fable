@@ -3,6 +3,9 @@ import os
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 
 import numpy as np
+import pytest
+
+pytest.importorskip("pygame", reason="suite complete : requiert pygame")
 
 
 def _env_policy():

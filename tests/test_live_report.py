@@ -1,9 +1,12 @@
 import os
 import sys
+import pytest
 
 sys.path.insert(
     0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "scripts")
 )
+
+pytest.importorskip("torch", reason="suite complete : requiert torch")
 
 
 def _tiny_env_policy():

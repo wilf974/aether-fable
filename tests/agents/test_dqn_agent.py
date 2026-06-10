@@ -5,6 +5,9 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+pytest.importorskip("torch", reason="suite complete : requiert torch")
+pytest.importorskip("mw_ia", reason="suite complete : requiert le repo sibling MW_IA")
+
 from mw_ia.config import DQNConfig
 
 from aetherlife.agents.dqn_agent import DQNAgent

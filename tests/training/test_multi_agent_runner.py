@@ -4,6 +4,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+pytest.importorskip("torch", reason="suite complete : requiert torch")
+pytest.importorskip("mw_ia", reason="suite complete : requiert le repo sibling MW_IA")
+
 from mw_ia.config import DQNConfig
 
 from aetherlife.agents.independent_dqn import IndependentDQNAgent
