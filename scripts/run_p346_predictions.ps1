@@ -27,6 +27,34 @@ Set-Location $root
 
 $inv = [System.Globalization.CultureInfo]::InvariantCulture
 
+# Nombre de tentatives par run et attente max (s) que le GPU revienne après
+# une perte transitoire (reset driver / veille machine — cf. crash 2026-06-10).
+$MaxAttempts = 3
+$GpuWaitMaxSeconds = 600
+
+function Test-GpuReady {
+    # $true si CUDA est de nouveau disponible. Robuste si python lui-même crashe.
+    try {
+        & python -c "import torch, sys; sys.exit(0 if torch.cuda.is_available() else 1)" *> $null
+        return ($LASTEXITCODE -eq 0)
+    } catch {
+        return $false
+    }
+}
+
+function Wait-ForGpu {
+    $waited = 0
+    while (-not (Test-GpuReady)) {
+        if ($waited -ge $GpuWaitMaxSeconds) {
+            Write-Host ("[gpu]  toujours indisponible après {0}s — on tente quand même" -f $waited)
+            return
+        }
+        Write-Host "[gpu]  indisponible — attente 30s puis re-test..."
+        Start-Sleep -Seconds 30
+        $waited += 30
+    }
+}
+
 function Invoke-Run {
     param(
         [string]$OutDir,
@@ -40,22 +68,35 @@ function Invoke-Run {
         Write-Host "[skip] $OutDir already complete"
         return
     }
-    if (Test-Path $OutDir) { Remove-Item -Recurse -Force $OutDir }
-    $t0 = Get-Date
-    Write-Host "[run]  $OutDir  start=$t0"
-    & python scripts/overnight_v8b1.py `
-        --ticks $Ticks `
-        --regime coordination_collective `
-        --vocalize-cost $VCost `
-        --seed $Seed `
-        --out-dir $OutDir `
-        --device cuda @ExtraArgs *>&1 | Tee-Object -FilePath $LogPath | Out-Null
-    $dt = (Get-Date) - $t0
-    if (Test-Path "$OutDir\overnight_v8b1_seed$Seed.json") {
-        Write-Host ("[ok]   {0}  dur={1:N0}s" -f $OutDir, $dt.TotalSeconds)
-    } else {
-        Write-Host ("[FAIL] {0}  dur={1:N0}s  see {1}" -f $OutDir, $dt.TotalSeconds, $LogPath)
+
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        if (Test-Path $OutDir) { Remove-Item -Recurse -Force $OutDir }
+        # Garantit un log même si python meurt à l'import (CUDA init throw).
+        New-Item -ItemType File -Force -Path $LogPath | Out-Null
+        Wait-ForGpu
+
+        $t0 = Get-Date
+        $tag = if ($attempt -gt 1) { " (tentative $attempt/$MaxAttempts)" } else { "" }
+        Write-Host "[run]  $OutDir  start=$t0$tag"
+        & python scripts/overnight_v8b1.py `
+            --ticks $Ticks `
+            --regime coordination_collective `
+            --vocalize-cost $VCost `
+            --seed $Seed `
+            --out-dir $OutDir `
+            --device cuda @ExtraArgs *>&1 | Tee-Object -FilePath $LogPath | Out-Null
+        $dt = (Get-Date) - $t0
+
+        if (Test-Path "$OutDir\overnight_v8b1_seed$Seed.json") {
+            Write-Host ("[ok]   {0}  dur={1:N0}s" -f $OutDir, $dt.TotalSeconds)
+            return
+        }
+        Write-Host ("[FAIL] {0}  dur={1:N0}s  tentative={2}/{3}  see {4}" `
+            -f $OutDir, $dt.TotalSeconds, $attempt, $MaxAttempts, $LogPath)
+        if ($attempt -lt $MaxAttempts) { Start-Sleep -Seconds 15 }
     }
+    Write-Host ("[GIVEUP] {0}  abandon après {1} tentatives — see {2}" `
+        -f $OutDir, $MaxAttempts, $LogPath)
 }
 
 $tStart = Get-Date
