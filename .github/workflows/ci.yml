@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  core-tests:
+    name: Tests core (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: pip install -e ".[dev]"
+
+      - name: Pytest (les tests torch/mw_ia/pygame sont skippés via importorskip)
+        run: pytest tests/ -q --tb=short
+
+  full-tests:
+    name: Tests complets (torch CPU)
+    runs-on: ubuntu-latest
+    # mw_ia est un repo local non publié : ce job ne tourne que si le repo
+    # est disponible en sibling (à activer quand MW_IA sera poussé sur GitHub).
+    if: ${{ vars.MW_IA_REPO != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.MW_IA_REPO }}
+          path: MW_IA
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install
+        run: |
+          pip install -e ".[dev,viz]"
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -e ./MW_IA
+
+      - name: Pytest (suite complète, CPU)
+        run: pytest tests/ -q --tb=short
