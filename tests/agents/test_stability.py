@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 
 torch = pytest.importorskip("torch")
+pytest.importorskip("mw_ia", reason="suite complete : requiert le repo sibling MW_IA")
 
 from aetherlife.agents.lineage_brain import BrainConfig, LineageBrain
 

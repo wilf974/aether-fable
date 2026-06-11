@@ -39,6 +39,7 @@ def test_higher_n_seed_points_more_fragmented():
 
 def test_run_overnight_records_n_seed_points(tmp_path):
     pytest.importorskip("torch", reason="suite complete : requiert torch")
+    pytest.importorskip("mw_ia", reason="suite complete : requiert le repo sibling MW_IA")
     from overnight_v8b1 import run_overnight
     rep = run_overnight(n_ticks=20, seed=1, device="cpu", out_dir=str(tmp_path),
                         regime="coordination_collective", n_seed_points=16)

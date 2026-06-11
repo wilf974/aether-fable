@@ -51,6 +51,7 @@ def test_build_env_rejects_non_default_affinities_outside_coordination():
 
 def test_run_overnight_records_condition_in_report(tmp_path):
     pytest.importorskip("torch", reason="suite complete : requiert torch")
+    pytest.importorskip("mw_ia", reason="suite complete : requiert le repo sibling MW_IA")
     from overnight_v8b1 import run_overnight
     report = run_overnight(
         n_ticks=20, seed=1, device="cpu", out_dir=str(tmp_path),

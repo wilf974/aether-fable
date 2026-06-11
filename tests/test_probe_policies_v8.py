@@ -5,6 +5,7 @@ import pytest
 
 def test_probe_capture_produces_valid_json(tmp_path):
     pytest.importorskip("torch", reason="suite complete : requiert torch")
+    pytest.importorskip("mw_ia", reason="suite complete : requiert le repo sibling MW_IA")
     import os
     import subprocess
     import sys

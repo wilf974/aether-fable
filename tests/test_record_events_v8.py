@@ -8,6 +8,7 @@ import pytest
 
 def test_recorder_produces_valid_contract(tmp_path):
     pytest.importorskip("torch", reason="suite complete : requiert torch")
+    pytest.importorskip("mw_ia", reason="suite complete : requiert le repo sibling MW_IA")
     out_dir = str(tmp_path / "rec")
     r = subprocess.run(
         [sys.executable, "scripts/record_events_v8.py",

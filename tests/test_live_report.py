@@ -7,6 +7,7 @@ sys.path.insert(
 )
 
 pytest.importorskip("torch", reason="suite complete : requiert torch")
+pytest.importorskip("mw_ia", reason="suite complete : requiert le repo sibling MW_IA")
 
 
 def _tiny_env_policy():

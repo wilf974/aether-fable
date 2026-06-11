@@ -14,6 +14,7 @@ sys.path.insert(
 
 def test_run_overnight_emits_spatial_mobility_block(tmp_path):
     pytest.importorskip("torch", reason="suite complete : requiert torch")
+    pytest.importorskip("mw_ia", reason="suite complete : requiert le repo sibling MW_IA")
     from overnight_v8b1 import run_overnight
 
     report = run_overnight(
