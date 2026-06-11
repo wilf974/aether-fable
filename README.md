@@ -185,6 +185,29 @@ Attendu V2 : **122 tests verts** (V1 : 72, V1.5 : 18, V2 : 11 ma_grid + 8 idqn +
 
 Voir le design détaillé dans `docs/superpowers/specs/2026-05-23-aetherlife-v1-solo-forager-design.md`.
 
+## Télémétrie (V2.5)
+
+Chaque run écrit dans son `out_dir` : `metrics.jsonl` (série temporelle
+crash-safe, 1 JSON/ligne), `run_config.json` et `run_summary.json`.
+
+```bash
+# runners package : passer metrics_dir=...
+# scripts overnight/multiseed : automatique via --out-dir
+
+# Résumé texte + courbes d'un ou plusieurs runs
+python scripts/metrics_report.py results/<run_dir> [--plot]
+```
+
+Lecture pandas : `pd.read_json("metrics.jsonl", lines=True)`.
+Module : [`aetherlife/telemetry.py`](aetherlife/telemetry.py) (zéro dépendance).
+
+## CI
+
+GitHub Actions ([.github/workflows/ci.yml](.github/workflows/ci.yml)) :
+suite core sur py3.11/3.13 sans deps optionnelles (tests torch/mw_ia/pygame
+skippés via `importorskip`) ; job complet torch CPU activable via la
+variable de repo `MW_IA_REPO` quand MW_IA sera publié.
+
 ## Stack technique
 
 - Python 3.13+
