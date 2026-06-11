@@ -10,7 +10,118 @@
 - Utiliser le MCP **context7** pour la doc des librairies (Gymnasium, PyTorch, etc.).
 - TaskCreate/TodoWrite pour piloter les tâches multi-étapes.
 
+---
+
+# 🟢 HANDOFF COURANT (2026-06-11 — V2.5, `v0.2.0-alpha`)
+
+> **Toute IA qui reprend le relais lit cette section EN PREMIER.** Le reste du
+> fichier (à partir de « État au handoff 2026-05-23 ») est l'historique V1,
+> conservé comme référence mais **périmé** sur l'état global.
+
+## TL;DR de l'état actuel
+
+Plateforme RL d'étude des comportements émergents, à **V2.5**. Multi-agent IDQN
++ tragedy of the commons démontrée, langage émergent (double bifurcation, ~10,5 %
+des seeds), portfolio effect, topologie. La V2.5 a ajouté l'**outillage scientifique
+et l'industrialisation** (CI, télémétrie, métriques d'écologie, préenregistrement).
+
+- **Suite aetherlife** : `491 passed, 26 skipped` (skips = tests torch/mw_ia/pygame).
+- **Repo GitHub** : `https://github.com/wilf974/aether-fable` (branche `master`). **CI verte.**
+- **Dépendance MW_IA** : `https://github.com/wilf974/mw-ia` (branche `main`). **CI verte.**
+
+## ⚠️ PIÈGE ORGANISATIONNEL CRITIQUE — deux copies de MW_IA
+
+Il existe **deux** MW_IA sur le disque, qui ont divergé :
+
+| Chemin | Rôle | Ne pas… |
+|---|---|---|
+| `IA Inst\MW_IA` | **LE VRAI** (canonique, 246+ commits, V2-W/Y/Z + V2-C0 RND). Copie de travail de l'utilisateur. | **NE JAMAIS modifier sans accord explicite.** |
+| `IA Inst\AetherLife\MW_IA` | Copie liée à GitHub `wilf974/mw-ia`, synchronisée depuis le vrai par merge le 2026-06-11. C'est `../MW_IA` vu depuis `aetherlife_pkg`. | OK à modifier ; resynchroniser depuis le vrai si besoin. |
+
+`aetherlife_pkg` dépend de `../MW_IA` = la copie imbriquée. **Avant de toucher à
+MW_IA, vérifier dans quel dossier on est.** À terme l'utilisateur pourrait n'en
+garder qu'un ; ne pas présumer.
+
+## Ce qui a été livré en V2.5 (session 2026-06-11)
+
+| Domaine | Livrable | Fichier(s) |
+|---|---|---|
+| CI | GitHub Actions (tests core py3.11/3.13 + job torch CPU optionnel via var `MW_IA_REPO`) | `.github/workflows/ci.yml` |
+| Portabilité | Gardes `pytest.importorskip("torch"/"mw_ia"/"pygame")` → suite tourne sans deps lourdes | `tests/**` |
+| Télémétrie | Logger stdlib + `MetricsLogger` JSONL crash-safe (`metrics.jsonl`, `run_config.json`, `run_summary.json`) | `aetherlife/telemetry.py` |
+| Télémétrie | `metrics_dir=` optionnel dans les 5 runners + overnight | `aetherlife/training/*_runner.py`, `scripts/overnight_v8b1.py` |
+| Analyse runs | Résumé texte + courbes des runs | `scripts/metrics_report.py` |
+| Replay | Inspecteur tick-par-tick des events v8 (summary/tick/agent/find/ecology) | `scripts/inspect_replay.py` |
+| Écologie | Shannon, Simpson, niche de Pianka, détection de bifurcation | `aetherlife/metrics/ecology.py` |
+| Écologie | Bloc `ecology_v25` dans le report overnight + `detect_ecology` Historian | `scripts/overnight_v8b1.py`, `aetherlife/historian/discoveries.py` |
+| Préreg N=100 | Stats pures (Wilson, bootstrap), agrégation multi-seeds, `PreregSpec` figé + `audit`, CLI | `aetherlife/analysis/{stats,aggregate,prereg}.py`, `scripts/prereg.py` |
+| Intégration | Pattern « contrat auditable » repris d'AetherMind_OS | `docs/integration-ideas.md` |
+
+## Procédures V2.5
+
+```powershell
+# Suite complète (machine avec venv : torch + mw_ia présents)
+.\.venv\Scripts\Activate.ps1   # PowerShell — PAS `source` (qui est bash)
+python -m pytest tests/ -q     # les 26 skips deviennent verts si torch présent
+
+# Préenregistrement auditable
+python scripts/prereg.py plan  docs/preregistrations/c2-replication-N30.json
+python scripts/prereg.py lock  docs/preregistrations/c2-replication-N30.json   # AVANT collecte
+python scripts/prereg.py audit docs/preregistrations/c2-replication-N30.json --runs results/c2-replication-N30
+
+# Analyse d'un run
+python scripts/metrics_report.py results/<run_dir> --plot
+python scripts/inspect_replay.py <run_dir> --ecology
+```
+
+## Workflow git / GitHub
+
+- Commits en français, style `type(scope): …`, par lots cohérents.
+- L'IA **ne peut pas push** (pas de credentials) : préparer les commits puis
+  **donner la commande `git push` à l'utilisateur**, qui s'authentifie.
+- Vérifier la CI après push via l'API publique :
+  `https://api.github.com/repos/wilf974/aether-fable/actions/runs?per_page=1` (champ `conclusion`).
+
+## Pièges sandbox/environnement (rencontrés le 2026-06-11)
+
+1. **CRLF/LF** : `git status` peut montrer des dizaines de fichiers « modifiés »
+   qui ne sont que des fins de ligne. Vérifier avec `git diff` ; `git checkout -- .` nettoie souvent.
+2. **`.git/index.lock` orphelin** ou **`.git/index` corrompu** (`bad signature` /
+   `index file corrupt`) : supprimer le fichier fautif (`rm .git/index`) puis `git reset`.
+3. **`.git/config` corrompu** (`bad config line 1`) : reconstruire à la main
+   (écrire un fichier neuf puis `mv` par-dessus) → rétablit remote + identité + branche.
+4. **Latence de synchro Windows↔sandbox** : un fichier écrit via l'outil Edit peut
+   mettre quelques secondes à se propager, voire arriver **tronqué**. Pour les gros
+   fichiers, préférer une réécriture/splice côté shell (`cat > … << EOF` + Python).
+5. **Branches** : `aether-fable` = `master`, `mw-ia` = `main`. Ne pas confondre.
+6. **CI MW_IA** : runner headless → garde sur `PyQt6.QtWidgets` (pas `PyQt6`) ; le
+   workflow installe `libegl1 libgl1` et fait `pip install -e .` (sinon les smoke
+   trainings ne trouvent pas `mw_ia`).
+
+## Conventions V2.5 (s'ajoutent aux conventions V1 plus bas)
+
+- **Tout test d'un module à dépendance lourde** ouvre par `pytest.importorskip("torch")`
+  (+ `"mw_ia"`, `"pygame"`). Le module `aetherlife/training` est importable sans torch
+  (imports d'agents sous `TYPE_CHECKING`).
+- **Observation pure** : tout tracker scientifique (écologie, etc.) n'influence JAMAIS
+  la dynamique ni le RNG — il lit des snapshots, point.
+- **Stats sans scipy** : le projet n'a pas scipy. Utiliser/étendre `aetherlife/analysis/stats.py`.
+- **Préenregistrement** : figer hypothèse + critères AVANT collecte (`PreregSpec` + `lock`),
+  puis `audit` confronte aux seuils figés → pas de p-hacking possible.
+
+## Prochaines étapes candidates
+
+1. Lancer une vraie campagne **N=100** avec la couche préreg (spec d'exemple :
+   `docs/preregistrations/c2-replication-N30.json` ; passer `seeds` à `range(1,101)`).
+2. Étendre la télémétrie/écologie aux scripts multiseed restants.
+3. Couche diffusion (`docs/integration-ideas.md`) : NeuroGlyph (démo jouable),
+   Chatterbox (narration audio des findings) — **pour plus tard**.
+
+---
+
 ## État au handoff (2026-05-23 — V1 livré `v0.1.0-alpha`)
+
+> ⚠️ Section historique V1 — voir le HANDOFF COURANT ci-dessus pour l'état réel.
 
 V1 Solo Forager complet :
 - **72 tests pytest verts** (17 config + 27 guardrails + 14 food_grid + 7 env + 7 agents).
