@@ -227,6 +227,30 @@ python scripts/inspect_replay.py RUN_DIR --find extinction
 python scripts/inspect_replay.py RUN_DIR --ecology      # métriques d'écologie agrégées
 ```
 
+## Préenregistrement N=100 (V2.5)
+
+Couche de préenregistrement auditable, inspirée du pattern contrat d'AetherMind_OS :
+on **fige avant collecte** une hypothèse, ses conditions, ses seeds et ses critères
+de décision dans un spec JSON, puis on confronte les résultats agrégés aux seuils
+pré-spécifiés — verdict reproductible, pas de p-hacking possible.
+
+```bash
+# 1. plan reproductible (condition × seed) à partir d'un spec figé
+python scripts/prereg.py plan docs/preregistrations/c2-replication-N30.json
+
+# 2. verrouiller AVANT de lancer les runs
+python scripts/prereg.py lock docs/preregistrations/c2-replication-N30.json
+
+# 3. après collecte : agrégation + verdict contre les critères pré-spécifiés
+python scripts/prereg.py audit docs/preregistrations/c2-replication-N30.json \
+    --runs results/c2-replication-N30
+```
+
+Modules : [`aetherlife/analysis/prereg.py`](aetherlife/analysis/prereg.py) (spec figé +
+audit), [`aetherlife/analysis/aggregate.py`](aetherlife/analysis/aggregate.py) (collecte
+multi-seeds), [`aetherlife/analysis/stats.py`](aetherlife/analysis/stats.py) (IC de Wilson,
+bootstrap, résumés — pur stdlib, pas de scipy).
+
 ## Stack technique
 
 - Python 3.13+

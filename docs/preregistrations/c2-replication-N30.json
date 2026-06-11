@@ -1,0 +1,78 @@
+{
+  "prereg_id": "c2-replication-N30",
+  "hypothesis": "Effet protecteur monotone de la diversité d'affinité sur la survie : taux d'extinction strictement décroissant en k, écart k1-k4 substantiel.",
+  "primary_metric": "extinct",
+  "conditions": [
+    {
+      "label": "k1",
+      "overrides": {
+        "n_initial_affinities": 1
+      }
+    },
+    {
+      "label": "k2",
+      "overrides": {
+        "n_initial_affinities": 2
+      }
+    },
+    {
+      "label": "k4",
+      "overrides": {
+        "n_initial_affinities": 4
+      }
+    }
+  ],
+  "criteria": [
+    {
+      "name": "k1 risque élevé",
+      "metric_path": "extinct",
+      "comparator": ">",
+      "threshold": 0.4,
+      "condition_label": "k1"
+    },
+    {
+      "name": "k4 protégé",
+      "metric_path": "extinct",
+      "comparator": "<",
+      "threshold": 0.2,
+      "condition_label": "k4"
+    }
+  ],
+  "seeds": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29,
+    30
+  ],
+  "regime": "coordination_collective",
+  "n_ticks": 16000,
+  "device": "cuda",
+  "locked_at": null,
+  "notes": "Métrique 'extinct' = (final_state.n_alive == 0). Conditions appariées par seed. Critères magnitude pré-spécifiés ; le contraste statistique k1 vs k4 reste documenté dans le finding (test de proportions). Voir le préreg markdown daté."
+}
