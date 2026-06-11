@@ -1,4 +1,4 @@
-# C2 — REPLICATION CONFIRMATOIRE N=30 de l'effet diversite d'affinite -> survie.
+# C2 - REPLICATION CONFIRMATOIRE N=30 de l'effet diversite d'affinite -> survie.
 #
 # Pre-enregistrement : docs/preregistrations/2026-06-10-c2-replication-N30-prereg.md
 # (critere VERROUILLE avant collecte des seeds 11-30).
@@ -41,10 +41,10 @@ function Wait-ForGpu {
     $waited = 0
     while (-not (Test-GpuReady)) {
         if ($waited -ge $GpuWaitMaxSeconds) {
-            Write-Host ("[gpu]  toujours indisponible apres {0}s — on tente quand meme" -f $waited)
+            Write-Host ("[gpu]  toujours indisponible apres {0}s - on tente quand meme" -f $waited)
             return
         }
-        Write-Host "[gpu]  indisponible — attente 30s puis re-test..."
+        Write-Host "[gpu]  indisponible - attente 30s puis re-test..."
         Start-Sleep -Seconds 30
         $waited += 30
     }
