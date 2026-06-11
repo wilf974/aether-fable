@@ -111,8 +111,11 @@ python scripts/inspect_replay.py <run_dir> --ecology
 
 ## Prochaines étapes candidates
 
-1. Lancer une vraie campagne **N=100** avec la couche préreg (spec d'exemple :
-   `docs/preregistrations/c2-replication-N30.json` ; passer `seeds` à `range(1,101)`).
+1. ~~Préparer la campagne N=100~~ **FAIT (2026-06-11)** : spec
+   `docs/preregistrations/c2-replication-N100.json` **lockée** + markdown daté.
+   Lancer côté utilisateur (GPU requis) : `.\scripts\run_c2_replication.ps1 -End 100`
+   (270 nouveaux runs, seeds 1-10 skip). Puis junctions + audit : voir §7 du
+   markdown N100. Métrique `extinct` désormais dérivée dans `analysis/aggregate.py`.
 2. Étendre la télémétrie/écologie aux scripts multiseed restants.
 3. Couche diffusion (`docs/integration-ideas.md`) : NeuroGlyph (démo jouable),
    Chatterbox (narration audio des findings) — **pour plus tard**.
