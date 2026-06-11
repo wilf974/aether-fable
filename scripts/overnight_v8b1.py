@@ -40,6 +40,7 @@ import numpy as np
 from aetherlife.agents.lineage_agent import LineageAgent, egocentric_obs
 from aetherlife.agents.lineage_brain import BrainConfig, LineageBrain
 from aetherlife.telemetry import MetricsLogger
+from aetherlife.metrics.ecology import EcologyTracker
 from aetherlife.world.biomes import BiomeConfig
 from aetherlife.world.cache import CacheConfig
 from aetherlife.world.competition import CompetitionConfig
@@ -472,6 +473,13 @@ def run_overnight(
     _mob_start = OccupancyAccumulator(env.cfg.rows, env.cfg.cols)
     _mob_end = OccupancyAccumulator(env.cfg.rows, env.cfg.cols)
 
+    # V2.5 — ecologie synthetique (observation pure, snapshots uniquement,
+    # aucun RNG, aucun impact dynamique)
+    _eco = EcologyTracker(
+        rows=env.cfg.rows, cols=env.cfg.cols,
+        n_affinities=max(n_initial_affinities, 1),
+    )
+
     for t in range(1, n_ticks + 1):
         if env.n_alive == 0:
             print(f"[t={t}] EXTINCTION")
@@ -607,6 +615,15 @@ def run_overnight(
                 mean_epsilon=float(metrics.get("mean_epsilon", 0.0)),
                 ticks_per_s=round(speed, 1),
             )
+            _eco.observe_event({
+                "agents": [
+                    {"r": a.pos[0], "c": a.pos[1],
+                     "aff": a.biome_affinity}
+                    for a in env._agents if a.alive  # noqa: SLF001
+                ],
+                "n_alive": env.n_alive,
+                "n_lin": len(policy.registry),
+            })
             lineages_curve.append((t, len(policy.registry)))
             if not np.isnan(mean_loss):
                 loss_curve.append((t, mean_loss))
@@ -788,6 +805,7 @@ def run_overnight(
             "divergence": divergence_curve,
             "loss": loss_curve,
         },
+        "ecology_v25": _eco.finalize(),
         "spatial_mobility_v8c3": build_spatial_mobility_block(
             _mob_start, _mob_end,
             start_window=_mob_swin,

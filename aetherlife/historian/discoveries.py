@@ -747,6 +747,101 @@ class DiscoveriesDetector:
             ))
         return out
 
+
+    def detect_ecology(self) -> list[Discovery]:
+        """V2.5 — structure écologique : partition de niches, dominance, shift démographique.
+
+        Lit `report["ecology_v25"]` (bloc produit par EcologyTracker dans
+        overnight_v8b1) : recouvrement de niche de Pianka entre affinités,
+        dominance de Simpson, détection naïve de bifurcation sur alive(t).
+        Observationnel uniquement — chaque signal reste à valider multi-seed.
+        """
+        eco = self._get("ecology_v25") or {}
+        if not eco:
+            return []
+        out: list[Discovery] = []
+
+        counts = eco.get("affinity_counts") or []
+        n_pop = sum(1 for c in counts if c > 0)
+        overlaps = eco.get("niche_overlap") or {}
+        mean_ov = eco.get("mean_niche_overlap")
+
+        # 1) Partition de niches spatiales (recouvrement de Pianka bas)
+        if overlaps and mean_ov is not None and n_pop >= 2 and mean_ov < 0.5:
+            confidence = min(1.0, max(0.0, 1.0 - mean_ov))
+            out.append(Discovery(
+                slug="ecology_niche_partitioning",
+                category=DiscoveryCategory.SPATIAL,
+                confidence=confidence,
+                headline=(
+                    f"Pattern suggère une PARTITION DE NICHES spatiales entre "
+                    f"affinités : recouvrement de Pianka moyen = {mean_ov:.2f} "
+                    f"(< 0.5) sur {n_pop} affinités peuplées. Les stratégies "
+                    f"occupent des zones distinctes."
+                ),
+                evidence={
+                    "mean_niche_overlap": mean_ov,
+                    "niche_overlap_pairs": overlaps,
+                    "affinity_counts": counts,
+                    "shannon_diversity": eco.get("shannon_diversity"),
+                },
+                validation=[
+                    "Vérifier sur n>=20 seeds que la partition n'est pas un "
+                    "artefact de la géographie des biomes (corréler aux seed points)",
+                    "Ablation : biomes uniformes -> la partition disparaît-elle ?",
+                ],
+            ))
+
+        # 2) Dominance d'une affinité (Simpson haut malgré plusieurs affinités)
+        simpson = eco.get("simpson_dominance")
+        if simpson is not None and n_pop >= 2 and simpson > 0.6:
+            out.append(Discovery(
+                slug="ecology_affinity_dominance",
+                category=DiscoveryCategory.REGIME,
+                confidence=min(1.0, simpson),
+                headline=(
+                    f"Pattern suggère la DOMINANCE d'une affinité : "
+                    f"Simpson λ = {simpson:.2f} (> 0.6) alors que {n_pop} "
+                    f"affinités sont peuplées. Une stratégie monopolise "
+                    f"l'occupation."
+                ),
+                evidence={
+                    "simpson_dominance": simpson,
+                    "affinity_counts": counts,
+                    "shannon_evenness": eco.get("shannon_evenness"),
+                },
+                validation=[
+                    "Comparer à la distribution initiale (k affinités balancées)",
+                    "La dominance est-elle stable inter-seeds ou contingente ?",
+                ],
+            ))
+
+        # 3) Shift démographique (changepoint sur alive(t))
+        bif = eco.get("alive_bifurcation") or {}
+        if bif.get("changed"):
+            before = bif.get("mean_before", 0.0)
+            after = bif.get("mean_after", 0.0)
+            score = bif.get("score", 0.0)
+            collapse = after < before
+            out.append(Discovery(
+                slug="ecology_population_shift",
+                category=(DiscoveryCategory.EXTINCTION if collapse
+                          else DiscoveryCategory.REGIME),
+                confidence=min(1.0, score / 4.0),
+                headline=(
+                    f"Pattern suggère un {'EFFONDREMENT' if collapse else 'ESSOR'} "
+                    f"démographique : changement de niveau détecté sur alive(t), "
+                    f"moyenne {before:.0f} -> {after:.0f} "
+                    f"(score {score:.1f} écarts-types)."
+                ),
+                evidence=dict(bif),
+                validation=[
+                    "Localiser le tick du split et croiser avec saisons/loss/extinctions de lignées",
+                    "Le shift se reproduit-il à seed fixe ? (déterminisme)",
+                ],
+            ))
+        return out
+
     def detect_all(self) -> list[Discovery]:
         """Lance tous les détecteurs et concatène les résultats."""
         out: list[Discovery] = []
@@ -756,6 +851,7 @@ class DiscoveriesDetector:
             self.detect_cognition,
             self.detect_selection, self.detect_instability,
             self.detect_cooperation, self.detect_mobility,
+            self.detect_ecology,
         ):
             try:
                 out.extend(fn())
