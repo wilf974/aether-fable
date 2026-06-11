@@ -208,6 +208,25 @@ suite core sur py3.11/3.13 sans deps optionnelles (tests torch/mw_ia/pygame
 skippés via `importorskip`) ; job complet torch CPU activable via la
 variable de repo `MW_IA_REPO` quand MW_IA sera publié.
 
+## Outils scientifiques (V2.5)
+
+Métriques d'écologie synthétique — [`aetherlife/metrics/ecology.py`](aetherlife/metrics/ecology.py) :
+diversité de Shannon (+ évenness de Pielou), dominance de Simpson, recouvrement
+de niche spatiale de Pianka entre affinités, et détection naïve de bifurcation
+(changepoint de moyenne) sur une courbe `alive(t)`. `EcologyTracker` consomme
+directement les events v8 (`observe_event`) et renvoie un bloc JSON.
+
+Inspecteur de replay tick-par-tick — [`scripts/inspect_replay.py`](scripts/inspect_replay.py),
+sans GUI, sur un dossier de run (`events.jsonl` + `meta.json`) :
+
+```bash
+python scripts/inspect_replay.py RUN_DIR --summary      # vue d'ensemble
+python scripts/inspect_replay.py RUN_DIR --tick 15000   # état du monde à ce tick
+python scripts/inspect_replay.py RUN_DIR --agent 7      # trajectoire d'un agent
+python scripts/inspect_replay.py RUN_DIR --find extinction
+python scripts/inspect_replay.py RUN_DIR --ecology      # métriques d'écologie agrégées
+```
+
 ## Stack technique
 
 - Python 3.13+
