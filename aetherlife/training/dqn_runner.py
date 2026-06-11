@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import statistics
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
-from aetherlife.agents.dqn_agent import DQNAgent
+if TYPE_CHECKING:  # import torch/mw_ia uniquement pour le typage
+    from aetherlife.agents.dqn_agent import DQNAgent
 from aetherlife.training.best_checkpoint import BestCheckpointTracker
+from aetherlife.telemetry import MetricsLogger
 from aetherlife.world.food_grid import FoodGrid
 
 
@@ -92,6 +94,7 @@ def run_dqn_training(
     base_seed: int = 0,
     on_episode_end: Callable[[EpisodeMetric], None] | None = None,
     on_assess: Callable[[AssessmentMetric, bool], None] | None = None,
+    metrics_dir: str | Path | None = None,
 ) -> DQNRunnerResult:
     """Boucle d'entraînement DQN avec assessment périodique et best-checkpoint.
 
@@ -114,6 +117,12 @@ def run_dqn_training(
         save_path=Path(checkpoint_path), patience=patience, min_delta=min_delta
     )
     result = DQNRunnerResult()
+
+    # V2.5 — telemetrie optionnelle (metrics.jsonl), aucun effet si None
+    mlog: MetricsLogger | None = None
+    if metrics_dir is not None:
+        mlog = MetricsLogger(metrics_dir)
+
 
     for episode_idx in range(n_episodes):
         obs, _ = env.reset(seed=base_seed + episode_idx)
@@ -142,6 +151,8 @@ def run_dqn_training(
             last_loss=agent.last_loss,
         )
         result.train_metrics.append(metric)
+        if mlog is not None:
+            mlog.log(episode_idx, phase="train", **asdict(metric))
         if on_episode_end is not None:
             on_episode_end(metric)
 
@@ -149,6 +160,9 @@ def run_dqn_training(
             a_m = assess(env, agent, n_episodes=assess_episodes)
             improved = tracker.report(episode_idx, a_m.survival_rate, agent)
             result.assessment_metrics.append(a_m)
+            if mlog is not None:
+                mlog.log(episode_idx, phase="assess", improved=improved,
+                         **asdict(a_m))
             if on_assess is not None:
                 on_assess(a_m, improved)
             if tracker.should_stop:
@@ -160,4 +174,12 @@ def run_dqn_training(
     result.best_assessment_episode = tracker.best_step
     if not result.stopped_early:
         result.final_episode = n_episodes - 1
+    if mlog is not None:
+        mlog.summary(
+            best_assessment_score=result.best_assessment_score,
+            best_assessment_episode=result.best_assessment_episode,
+            final_episode=result.final_episode,
+            stopped_early=result.stopped_early,
+        )
+        mlog.close()
     return result

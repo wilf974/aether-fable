@@ -78,3 +78,40 @@ def test_ma_training_saves_checkpoint(
         checkpoint_path=ckpt,
     )
     assert ckpt.exists()
+
+
+def test_run_ma_training_writes_metrics_jsonl(
+    tmp_path: Path, tiny_ma_env: MultiAgentFoodGrid, tiny_dqn_cfg: DQNConfig
+) -> None:
+    """V2.5 — metrics_dir produit metrics.jsonl + run_summary.json."""
+    import json
+
+    agent = IndependentDQNAgent(tiny_ma_env, tiny_dqn_cfg, device="cpu", seed=0)
+    mdir = tmp_path / "telemetry"
+    run_ma_training(
+        tiny_ma_env, agent,
+        n_episodes=6, assess_every=3, assess_episodes=2,
+        checkpoint_path=tmp_path / "ma_best.pt",
+        metrics_dir=mdir,
+    )
+    recs = [json.loads(l) for l in (mdir / "metrics.jsonl").read_text().splitlines()]
+    train = [r for r in recs if r["phase"] == "train"]
+    assess = [r for r in recs if r["phase"] == "assess"]
+    assert len(train) == 6
+    assert len(assess) == 2
+    assert "mean_lifespan" in train[0]
+    assert "improved" in assess[0]
+    summ = json.loads((mdir / "run_summary.json").read_text())
+    assert "best_assessment_score" in summ
+
+
+def test_run_ma_training_no_metrics_dir_writes_nothing(
+    tmp_path: Path, tiny_ma_env: MultiAgentFoodGrid, tiny_dqn_cfg: DQNConfig
+) -> None:
+    agent = IndependentDQNAgent(tiny_ma_env, tiny_dqn_cfg, device="cpu", seed=0)
+    run_ma_training(
+        tiny_ma_env, agent,
+        n_episodes=2, assess_every=5, assess_episodes=1,
+        checkpoint_path=tmp_path / "ma_best.pt",
+    )
+    assert not (tmp_path / "metrics.jsonl").exists()
