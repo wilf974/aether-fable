@@ -62,6 +62,32 @@ def test_aggregate_metric_bool_as_rate(tmp_path):
     assert round(summ.mean, 4) == round(2 / 3, 4)
 
 
+def test_aggregate_metric_extinct_derived_from_n_alive(tmp_path):
+    """Les vrais reports overnight n'ont PAS de champ 'extinct' : il est dérivé
+    de final_state.n_alive == 0 (cf. notes des specs préreg C2)."""
+    d1 = tmp_path / "s1"
+    d1.mkdir()
+    (d1 / "overnight_v8b1_seed1.json").write_text(
+        json.dumps({"final_state": {"n_alive": 0}}))
+    d2 = tmp_path / "s2"
+    d2.mkdir()
+    (d2 / "overnight_v8b1_seed2.json").write_text(
+        json.dumps({"final_state": {"n_alive": 37}}))
+    runs = collect_runs(tmp_path)
+    summ = aggregate_metric(runs, "extinct")
+    assert summ.n == 2
+    assert summ.mean == 0.5
+
+
+def test_aggregate_metric_extinct_explicit_wins(tmp_path):
+    """Un champ 'extinct' explicite prime sur la dérivation."""
+    _write_run(tmp_path / "s1", 1, alive=80, ext=True)  # incohérent exprès
+    runs = collect_runs(tmp_path)
+    summ = aggregate_metric(runs, "extinct")
+    assert summ.n == 1
+    assert summ.mean == 1.0
+
+
 def test_aggregate_metric_missing_ignored(tmp_path):
     _write_run(tmp_path / "s1", 1, 80, shannon=1.0)
     _write_run(tmp_path / "s2", 2, 80)  # pas de shannon

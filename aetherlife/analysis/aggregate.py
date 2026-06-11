@@ -16,7 +16,7 @@ from typing import Any, Iterable
 
 from aetherlife.analysis.stats import Summary, summarize
 
-__all__ = ["load_run", "collect_runs", "get_path", "aggregate_metric"]
+__all__ = ["load_run", "collect_runs", "get_path", "aggregate_metric", "DERIVED_METRICS"]
 
 
 def _read_json(p: Path) -> dict:
@@ -88,6 +88,21 @@ def get_path(data: dict, path: str, default: Any = None) -> Any:
     return cur
 
 
+def _derive_extinct(run: dict[str, Any]) -> bool | None:
+    """extinct = (final_state.n_alive == 0) — cf. notes des specs préreg C2."""
+    n_alive = get_path(run, "final_state.n_alive")
+    if isinstance(n_alive, (int, float)) and not isinstance(n_alive, bool):
+        return n_alive == 0
+    return None
+
+
+#: Métriques dérivées : utilisées si le chemin pointé est absent du run.
+#: Les reports overnight réels n'ont pas de champ ``extinct`` ; il est dérivé.
+DERIVED_METRICS = {
+    "extinct": _derive_extinct,
+}
+
+
 def aggregate_metric(
     runs: Iterable[dict[str, Any]],
     path: str,
@@ -95,11 +110,15 @@ def aggregate_metric(
 ) -> Summary:
     """Extrait ``path`` (numérique) de chaque run et résume l'échantillon.
 
-    Les runs où la valeur est absente ou non numérique sont ignorés.
+    Si ``path`` est absent d'un run mais figure dans ``DERIVED_METRICS``, la
+    valeur est dérivée (ex ``extinct`` ← ``final_state.n_alive == 0``).
+    Les runs où la valeur reste absente ou non numérique sont ignorés.
     """
     vals: list[float] = []
     for r in runs:
         v = get_path(r, path)
+        if v is None and path in DERIVED_METRICS:
+            v = DERIVED_METRICS[path](r)
         if isinstance(v, bool):
             vals.append(1.0 if v else 0.0)
         elif isinstance(v, (int, float)):
